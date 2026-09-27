@@ -1,10 +1,10 @@
 package com.miguenduval.mimicdj2.server
 
-import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -66,10 +66,10 @@ class ServerDiagnostics {
         val entry = LogEntry(System.currentTimeMillis(), level, tag, message, throwable)
         scope.launch { logChannel.send(entry) }
         when (level) {
-            LogLevel.DEBUG -> Log.d(tag, message, throwable)
-            LogLevel.INFO -> Log.i(tag, message, throwable)
-            LogLevel.WARN -> Log.w(tag, message, throwable)
-            LogLevel.ERROR -> Log.e(tag, message, throwable)
+            LogLevel.DEBUG -> Timber.tag(tag).d(throwable, message)
+            LogLevel.INFO -> Timber.tag(tag).i(throwable, message)
+            LogLevel.WARN -> Timber.tag(tag).w(throwable, message)
+            LogLevel.ERROR -> Timber.tag(tag).e(throwable, message)
         }
     }
 

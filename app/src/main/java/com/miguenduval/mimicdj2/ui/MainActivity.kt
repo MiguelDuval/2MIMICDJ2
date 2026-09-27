@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.os.Bundle
 import android.os.IBinder
-import android.util.Log
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
@@ -23,6 +22,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import timber.log.Timber
 
 @AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
@@ -52,14 +52,14 @@ class MainActivity : AppCompatActivity() {
             val binder = service as NetworkServerService.LocalBinder
             serverService = binder.getService()
             isBound = true
-            Log.d(TAG, "Service connected")
+            Timber.tag(TAG).d("Service connected")
             updateServerUI(true)
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
             serverService = null
             isBound = false
-            Log.d(TAG, "Service disconnected")
+            Timber.tag(TAG).d("Service disconnected")
             updateServerUI(false)
         }
     }

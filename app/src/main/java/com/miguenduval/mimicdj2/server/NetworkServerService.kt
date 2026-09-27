@@ -36,8 +36,6 @@ class NetworkServerService : Service() {
 
     private val binder = LocalBinder()
 
-    override fun onBind(intent: Intent?): IBinder? = binder
-
     companion object {
         private const val TAG = "NetworkServerService"
         private const val NOTIFICATION_ID = 1
@@ -221,8 +219,6 @@ class NetworkServerService : Service() {
     }
 
     private fun bytesToHex(bytes: ByteArray): String = bytes.joinToString(" ") { String.format("%02X", it) }
-
-    override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
         diagnostics.info(TAG, "Service destroyed")

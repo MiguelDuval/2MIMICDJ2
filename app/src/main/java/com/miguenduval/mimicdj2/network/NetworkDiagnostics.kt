@@ -8,12 +8,12 @@ import android.net.NetworkCapabilities
 import android.net.NetworkInfo
 import android.net.NetworkRequest
 import android.os.Build
-import android.util.Log
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.NetworkInterface
@@ -164,7 +164,7 @@ class NetworkDiagnostics(private val context: Context) {
     companion object {
         private const val TAG = "NetworkDiagnostics"
         fun log(msg: String) {
-            Log.d(TAG, msg)
+            Timber.tag(TAG).d(msg)
         }
     }
 }

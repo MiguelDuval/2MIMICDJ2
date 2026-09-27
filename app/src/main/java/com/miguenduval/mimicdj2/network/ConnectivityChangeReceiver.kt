@@ -4,7 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
-import android.util.Log
+import timber.log.Timber
 
 class ConnectivityChangeReceiver : BroadcastReceiver() {
     companion object {
@@ -14,7 +14,7 @@ class ConnectivityChangeReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == ConnectivityManager.CONNECTIVITY_ACTION) {
-            Log.d(TAG, "Connectivity changed: ${intent.action}")
+            Timber.tag(TAG).d("Connectivity changed: ${intent.action}")
             onConnectivityChanged?.invoke()
         }
     }
