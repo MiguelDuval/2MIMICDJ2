@@ -38,8 +38,7 @@ jobs:
         uses: android-actions/setup-android@v3
         with:
           api-level: 34
-          ndk-version: r26c
-          cmake-version: 3.22.1
+          emulator: false
 
       - name: Set up Gradle
         if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
