@@ -95,32 +95,21 @@ jobs:
           cache: npm
 
       - name: Build project
+        if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
         shell: bash
         run: |
           set -euo pipefail
 
-          if [[ -x "./gradlew" ]]; then
-            ./gradlew test lint assembleDebug --stacktrace
-          elif [[ -f "gradlew" ]]; then
-            chmod +x ./gradlew
-            ./gradlew test lint assembleDebug --stacktrace
-          elif [[ -f "pom.xml" ]]; then
-            ./mvnw test package || mvn -B test package
-          elif [[ -f "go.mod" ]]; then
-            go test ./...
-            go build ./...
-          elif [[ -f "package.json" ]]; then
-            if [[ -f "package-lock.json" ]]; then
-              npm ci
-            else
-              npm install
-            fi
-            npm test --if-present
-            npm run build --if-present
-          else
-            echo "No supported build system detected yet."
-            echo "This repository is intentionally allowed to start as a research scaffold."
-          fi
+          # Ensure gradlew is executable
+          chmod +x ./gradlew
+
+          # Print Android SDK info for debugging
+          echo "ANDROID_HOME=${ANDROID_HOME:-not set}"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-not set}"
+          ls -la "${ANDROID_HOME:-/usr/lib/android-sdk}" 2>/dev/null | head -20 || true
+
+          # Build with verbose output
+          ./gradlew test lint assembleDebug --stacktrace --info
 
       - name: Collect build outputs
         shell: bash
