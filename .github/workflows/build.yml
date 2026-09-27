@@ -35,10 +35,26 @@ jobs:
 
       - name: Set up Android SDK
         if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
-        uses: android-actions/setup-android@v3
-        with:
-          api-level: 34
-          emulator: false
+        run: |
+          set -euo pipefail
+          # Install Android SDK
+          ANDROID_SDK_ROOT="${{ runner.tool_cache }}/android-sdk"
+          mkdir -p "$ANDROID_SDK_ROOT"
+          cd "$ANDROID_SDK_ROOT"
+          # Download command line tools
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip
+          unzip -q cmdline-tools.zip -d cmdline-tools
+          mv cmdline-tools/cmdline-tools cmdline-tools/latest
+          rm cmdline-tools.zip
+          # Add to PATH
+          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "$ANDROID_SDK_ROOT/platform-tools" >> $GITHUB_PATH
+          # Accept licenses and install platform
+          yes | cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null
+          cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+          # Set ANDROID_HOME
+          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
 
       - name: Set up Gradle
         if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
