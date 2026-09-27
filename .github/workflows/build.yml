@@ -37,24 +37,44 @@ jobs:
         if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
         run: |
           set -euo pipefail
-          # Install Android SDK
-          ANDROID_SDK_ROOT="${{ runner.tool_cache }}/android-sdk"
-          mkdir -p "$ANDROID_SDK_ROOT"
-          cd "$ANDROID_SDK_ROOT"
-          # Download command line tools
-          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip
-          unzip -q cmdline-tools.zip -d cmdline-tools
-          mv cmdline-tools/cmdline-tools cmdline-tools/latest
-          rm cmdline-tools.zip
-          # Add to PATH
-          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> $GITHUB_PATH
-          echo "$ANDROID_SDK_ROOT/platform-tools" >> $GITHUB_PATH
-          # Accept licenses and install platform
-          yes | cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null
-          cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
-          # Set ANDROID_HOME
-          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+          # Check if Android SDK is pre-installed on ubuntu-latest
+          if [ -d "/usr/lib/android-sdk" ]; then
+            echo "ANDROID_HOME=/usr/lib/android-sdk" >> $GITHUB_ENV
+            echo "ANDROID_SDK_ROOT=/usr/lib/android-sdk" >> $GITHUB_ENV
+            echo "/usr/lib/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
+            echo "/usr/lib/android-sdk/platform-tools" >> $GITHUB_PATH
+            echo "Using pre-installed Android SDK at /usr/lib/android-sdk"
+          elif [ -d "$ANDROID_HOME" ]; then
+            echo "Using existing ANDROID_HOME: $ANDROID_HOME"
+            echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+            echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> $GITHUB_ENV
+          else
+            echo "Android SDK not found, attempting to install minimal SDK..."
+            ANDROID_SDK_ROOT="${{ runner.tool_cache }}/android-sdk"
+            mkdir -p "$ANDROID_SDK_ROOT"
+            cd "$ANDROID_SDK_ROOT"
+            # Download command line tools (use a more recent version)
+            wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip || {
+              echo "Failed to download command line tools"
+              exit 1
+            }
+            unzip -q cmdline-tools.zip -d cmdline-tools
+            mv cmdline-tools/cmdline-tools cmdline-tools/latest
+            rm cmdline-tools.zip
+            # Add to PATH
+            echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> $GITHUB_PATH
+            echo "$ANDROID_SDK_ROOT/platform-tools" >> $GITHUB_PATH
+            # Accept licenses and install platform
+            yes | cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
+            cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools" || {
+              echo "Failed to install Android platform"
+              exit 1
+            }
+            # Set ANDROID_HOME
+            echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+            echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+            echo "Installed Android SDK at $ANDROID_SDK_ROOT"
+          fi
 
       - name: Set up Gradle
         if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
