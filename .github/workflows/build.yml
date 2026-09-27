@@ -1,0 +1,117 @@
+name: Build
+
+on:
+  push:
+    branches-ignore:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Detect, test, build and package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Set up Gradle
+        if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Set up Go
+        if: hashFiles('**/go.mod') != ''
+        uses: actions/setup-go@v6
+        with:
+          go-version: stable
+          cache: true
+
+      - name: Set up Node
+        if: hashFiles('**/package.json') != ''
+        uses: actions/setup-node@v6
+        with:
+          node-version: 'lts/*'
+          cache: npm
+
+      - name: Build project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -x "./gradlew" ]]; then
+            ./gradlew test lint assembleDebug --stacktrace
+          elif [[ -f "gradlew" ]]; then
+            chmod +x ./gradlew
+            ./gradlew test lint assembleDebug --stacktrace
+          elif [[ -f "pom.xml" ]]; then
+            ./mvnw test package || mvn -B test package
+          elif [[ -f "go.mod" ]]; then
+            go test ./...
+            go build ./...
+          elif [[ -f "package.json" ]]; then
+            if [[ -f "package-lock.json" ]]; then
+              npm ci
+            else
+              npm install
+            fi
+            npm test --if-present
+            npm run build --if-present
+          else
+            echo "No supported build system detected yet."
+            echo "This repository is intentionally allowed to start as a research scaffold."
+          fi
+
+      - name: Collect build outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ci-artifacts
+
+          find . -type f \( \
+            -name "*.apk" -o \
+            -name "*.aab" -o \
+            -name "*.jar" -o \
+            -name "*.aar" -o \
+            -name "*.zip" \
+          \) \
+            -not -path "./.git/*" \
+            -not -path "./ci-artifacts/*" \
+            -print -exec cp --parents "{}" ci-artifacts/ \;
+
+          if [[ -d "build/reports" ]]; then
+            cp -r build/reports ci-artifacts/ || true
+          fi
+
+          if find ci-artifacts -type f | grep -q .; then
+            echo "Artifacts collected:"
+            find ci-artifacts -type f -print
+          else
+            echo "No distributable artifact exists yet."
+          fi
+
+      - name: Upload build artifacts
+        if: hashFiles('ci-artifacts/**') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-${{ github.sha }}
+          path: ci-artifacts/**
+          if-no-files-found: warn
+          retention-days: 14
