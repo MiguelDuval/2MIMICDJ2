@@ -1,9 +1,7 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
-    id 'com.google.dagger.hilt.android'
     id 'org.jetbrains.kotlin.plugin.serialization'
-    id 'org.jetbrains.kotlin.kapt'
 }
 
 android {
@@ -73,12 +71,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.3")
     implementation("androidx.lifecycle:lifecycle-livedata-ktx:2.8.3")
 
-    // Hilt DI
-    implementation("com.google.dagger:hilt-android:2.51.1")
-    kapt("com.google.dagger:hilt-compiler:2.51.1")
-    implementation("androidx.hilt:hilt-navigation-fragment:1.2.0")
-    implementation("androidx.hilt:hilt-work:1.2.0")
-
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
@@ -88,12 +80,8 @@ dependencies {
 
     // Networking
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("io.ktor:ktor-server-core:2.3.12")
-    implementation("io.ktor:ktor-server-cio:2.3.12")
-    implementation("io.ktor:ktor-server-content-negotiation:2.3.12")
-    implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.12")
 
-    // Logging - use Android's built-in Log with Timber-style wrapper
+    // Logging
     implementation("com.jakewharton.timber:timber:5.0.1")
 
     // Testing
@@ -102,11 +90,4 @@ dependencies {
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
-    androidTestImplementation("com.google.dagger:hilt-android-testing:2.51.1")
-    kaptAndroidTest("com.google.dagger:hilt-compiler:2.51.1")
-}
-
-kapt {
-    correctErrorTypes = true
-    javacOptions += listOf("-Xlint:unchecked", "-Xlint:deprecation")
 }

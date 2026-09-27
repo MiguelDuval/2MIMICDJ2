@@ -17,14 +17,12 @@ import com.miguenduval.mimicdj2.NetworkDiagnostics
 import com.miguenduval.mimicdj2.R
 import com.miguenduval.mimicdj2.server.NetworkServerService
 import com.miguenduval.mimicdj2.server.ServerDiagnostics
-import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import timber.log.Timber
 
-@AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
 
     private val TAG = "MainActivity"
