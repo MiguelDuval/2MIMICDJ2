@@ -94,7 +94,7 @@ jobs:
           node-version: 'lts/*'
           cache: npm
 
-      - name: Build project
+      - name: Gradle diagnostics
         if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
         shell: bash
         env:
@@ -102,33 +102,46 @@ jobs:
           ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
         run: |
           set -euo pipefail
-
-          # Ensure gradlew is executable
           chmod +x ./gradlew
-
-          # Print Android SDK info for debugging
+          echo "=== Gradle Version ==="
+          ./gradlew --version
+          echo ""
           echo "=== Android SDK Environment ==="
           echo "ANDROID_HOME=${ANDROID_HOME:-not set}"
           echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-not set}"
-          echo "PATH=$PATH"
           echo ""
           echo "=== SDK Directory Contents ==="
           if [ -d "${ANDROID_HOME:-/usr/lib/android-sdk}" ]; then
             ls -la "${ANDROID_HOME:-/usr/lib/android-sdk}"
           else
             echo "SDK directory not found at ${ANDROID_HOME:-/usr/lib/android-sdk}"
+            echo "Checking common locations:"
+            ls -la /usr/lib/android-sdk 2>/dev/null || echo "Not at /usr/lib/android-sdk"
+            ls -la /opt/android-sdk 2>/dev/null || echo "Not at /opt/android-sdk"
+            ls -la /home/runner/android-sdk 2>/dev/null || echo "Not at /home/runner/android-sdk"
+            ls -la /usr/local/android-sdk 2>/dev/null || echo "Not at /usr/local/android-sdk"
           fi
-          echo ""
-          echo "=== Checking for platform android-34 ==="
-          if [ -d "${ANDROID_HOME:-/usr/lib/android-sdk}/platforms/android-34" ]; then
-            echo "Platform android-34 found"
-          else
-            echo "Platform android-34 NOT found"
-            find "${ANDROID_HOME:-/usr/lib/android-sdk}" -name "android-34" -type d 2>/dev/null || echo "No android-34 directory found anywhere"
-          fi
-          echo ""
+
+- name: Gradle tasks test
+        if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
+        shell: bash
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+        run: |
+          set -euo pipefail
+          echo "=== Testing Gradle Configuration ==="
+          ./gradlew tasks --all 2>&1 | head -50
+
+- name: Build project
+        if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
+        shell: bash
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+        run: |
+          set -euo pipefail
           echo "=== Running Gradle Build ==="
-          # Build with explicit SDK path
           ./gradlew test lint assembleDebug --stacktrace --info \
             -Pandroid.sdk.dir="${ANDROID_HOME:-/usr/lib/android-sdk}" \
             -Pandroid.home="${ANDROID_HOME:-/usr/lib/android-sdk}"
