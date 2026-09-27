@@ -30,8 +30,16 @@ jobs:
         uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '17'
           cache: gradle
+
+      - name: Set up Android SDK
+        if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
+        uses: android-actions/setup-android@v3
+        with:
+          api-level: 34
+          ndk-version: r26c
+          cmake-version: 3.22.1
 
       - name: Set up Gradle
         if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
