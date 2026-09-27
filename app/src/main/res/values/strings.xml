@@ -1,0 +1,22 @@
+<resources>
+    <string name="app_name">2MIMICDJ2</string>
+    <string name="server_status_on">Server: ON</string>
+    <string name="server_status_off">Server: OFF</string>
+    <string name="start_server">Start Server</string>
+    <string name="stop_server">Stop Server</string>
+    <string name="copy_diagnostics">Copy Diagnostic Report</string>
+    <string name="clear_logs">Clear Logs</string>
+    <string name="diagnostics_title">Diagnostics</string>
+    <string name="network_title">Network</string>
+    <string name="services_title">Services</string>
+    <string name="discovery_title">Discovery</string>
+    <string name="session_title">Session</string>
+    <string name="library_title">Library</string>
+    <string name="file_server_title">File Server</string>
+    <string name="log_title">Event Log</string>
+    <string name="no_network_info">No active Wi-Fi network</string>
+    <string name="binding">Binding…</string>
+    <string name="bound">Bound</string>
+    <string name="error">Error</string>
+    <string name="unknown">Unknown</string>
+</resources>
