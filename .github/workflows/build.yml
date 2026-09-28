@@ -122,7 +122,7 @@ jobs:
             ls -la /usr/local/android-sdk 2>/dev/null || echo "Not at /usr/local/android-sdk"
           fi
 
-- name: Gradle tasks test
+      - name: Gradle tasks test
         if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
         shell: bash
         env:
@@ -133,7 +133,7 @@ jobs:
           echo "=== Testing Gradle Configuration ==="
           ./gradlew tasks --all 2>&1 | head -50
 
-- name: Build project
+      - name: Build project
         if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
         shell: bash
         env:

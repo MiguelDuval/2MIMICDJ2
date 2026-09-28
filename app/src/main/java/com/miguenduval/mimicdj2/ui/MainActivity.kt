@@ -13,7 +13,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.Observer
 import com.google.android.material.snackbar.Snackbar
-import com.miguenduval.mimicdj2.NetworkDiagnostics
+import com.miguenduval.mimicdj2.network.NetworkDiagnostics
 import com.miguenduval.mimicdj2.R
 import com.miguenduval.mimicdj2.server.NetworkServerService
 import com.miguenduval.mimicdj2.server.ServerDiagnostics

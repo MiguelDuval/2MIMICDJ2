@@ -1,5 +1,5 @@
 <resources>
-    <style name="Theme.MimicDj2" parent="Theme.Material3.DayNight.NoActionBar">
+    <style name="Theme.MimicDj2" parent="Theme.MaterialComponents.DayNight.NoActionBar">
         <item name="colorPrimary">@color/purple_700</item>
         <item name="colorPrimaryVariant">@color/purple_500</item>
         <item name="colorOnPrimary">@color/white</item>
@@ -13,4 +13,8 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
     </style>
+
+    <style name="Theme.MimicDj2.AppBarOverlay" parent="ThemeOverlay.MaterialComponents.Dark.ActionBar" />
+
+    <style name="Theme.MimicDj2.PopupOverlay" parent="ThemeOverlay.MaterialComponents.Light" />
 </resources>

@@ -65,3 +65,23 @@
 - Record any deviation from SC6000/Prime 4+ behavior
 - Note error messages displayed on Prime GO screen
 - Capture timestamps for correlation with packet captures
+
+## Protocol Evidence (from research)
+
+**Confirmed from SC6000/Engine OS 5.0.4 reverse engineering (deathcamel58):**
+
+- Discovery: UDP 11224, "EAAS\x01\x00" request, structured response with token + grpc:// URL
+- Transport: gRPC over cleartext HTTP/2 (no TLS)
+- Port 50010 = enginesync.v1 ONLY (enginelibrary.v1, networktrust.v1 NOT on 50010)
+- Trust: NetworkTrustService.CreateTrust with Ed25519 PK + device_name, interactive approve/deny
+- Library: enginelibrary.v1.EngineLibraryService with GetLibraries, GetLibrary, GetTracks, GetTrack, SearchTracks
+- File Transfer: HTTP on port 50020, GET /download/{path}
+- Required gRPC metadata: `uuid: <host-uuid>` + host must be in discovered-host table
+
+**Prime GO Specific (UNVERIFIED - needs hardware testing):**
+
+- Same discovery protocol?
+- Same gRPC port for library service?
+- Same trust flow?
+- Same file transfer protocol?
+- Engine OS version compatibility?
