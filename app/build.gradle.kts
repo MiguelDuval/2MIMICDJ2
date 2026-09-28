@@ -84,6 +84,7 @@ dependencies {
     implementation("io.grpc:grpc-netty-shaded:1.65.1")
     implementation("io.grpc:grpc-protobuf:1.65.1")
     implementation("io.grpc:grpc-stub:1.65.1")
+    implementation("javax.annotation:javax.annotation-api:1.3.2")
 
     // Logging
     implementation("com.jakewharton.timber:timber:5.0.1")
@@ -107,6 +108,9 @@ protobuf {
     }
     generateProtoTasks {
         all().forEach { task ->
+            task.builtins {
+                java { }
+            }
             task.plugins {
                 create("grpc")
             }
