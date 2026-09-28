@@ -259,7 +259,7 @@ class NetworkServerService : Service() {
     }
 
     private fun diagnoseTcpBindFailure() {
-        diagnostics.info(TAG, "Port 50020 diagnostic matrix:\n${PortDiagnostics.snapshot()}")
+        diagnostics.info(TAG, "Port 50020 diagnostic matrix:\n${PortDiagnostics.snapshot(NetworkAddress.currentLanIpv4(applicationContext))}")
 
         // A failed bind does not tell us whether the port is reserved-but-unused
         // or whether another system/vendor service already owns it. A connect
