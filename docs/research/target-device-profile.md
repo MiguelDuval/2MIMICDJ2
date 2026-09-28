@@ -85,3 +85,21 @@
 - Same trust flow?
 - Same file transfer protocol?
 - Engine OS version compatibility?
+## Current physical-test snapshot — 2026-09-28
+
+The following values are directly observed from the user's latest 2MIMICDJ2 diagnostic report (Evidence class A):
+
+- Target hardware: Denon DJ Prime GO.
+- Prime GO LAN IPv4: 10.122.26.191.
+- Android server LAN IPv4: 10.122.26.146.
+- Android Wi-Fi interface reported by the server: wlan1.
+- EAAS discovery peer/source port observed: UDP 44829 on Prime GO.
+- EAAS discovery destination: UDP 11224 on the Android server.
+- Discovery exchange: 7 requests / 7 replies during the observed test window.
+- Advertised gRPC endpoint: grpc://10.122.26.146:50010.
+- Inbound gRPC transport/RPC observed by the app: none.
+- Android HTTP 50020 bind: EPERM. 50021 and 50022 also EPERM; 50019, 50100 and 60000 bind successfully.
+- Prime GO firmware/Engine OS exact version: NOT YET RECORDED.
+- Android version / device model: NOT READ FROM THIS DIAGNOSTIC REPORT.
+
+This entry deliberately does not infer firmware-specific protocol behavior from SC6000 or older Engine DJ references.
