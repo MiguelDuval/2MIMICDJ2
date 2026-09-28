@@ -22,7 +22,7 @@ class EaasDiscoveryTest {
     }
 
     @Test
-    fun response_contains_expected_header_token_and_fields() {
+    fun response_contains_expected_header_token_and_legacy_tail() {
         val token = ByteArray(16) { it.toByte() }
         val response = EaasDiscovery.buildResponse(
             token = token,
@@ -70,7 +70,17 @@ class EaasDiscoveryTest {
         assertArrayEquals(versionBytes, response.copyOfRange(offset, offset + versionLength))
         offset += versionLength
 
-        // Modern EAAS discovery responses end after the version field.
+        assertEquals(0x01, response[offset].toInt())
+        offset += 1
+
+        val extraBytes = "_".toByteArray(Charsets.UTF_16BE)
+        val extraLength = ByteBuffer.wrap(response, offset, 4)
+            .order(ByteOrder.BIG_ENDIAN).int
+        assertEquals(extraBytes.size, extraLength)
+        offset += 4
+        assertArrayEquals(extraBytes, response.copyOfRange(offset, offset + extraLength))
+        offset += extraLength
+
         assertEquals(response.size, offset)
     }
 }
