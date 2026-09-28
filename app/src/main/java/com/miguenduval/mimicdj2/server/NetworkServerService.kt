@@ -152,14 +152,19 @@ class NetworkServerService : Service() {
                 throw IllegalStateException("No LAN IPv4 address available")
             }
 
-            val binding = NetworkAddress.bindProcessToLanIpv4Network(applicationContext, lanIp)
-            diagnostics.info(TAG, "Android network binding for $lanIp: $binding")
-
+            // Inbound server sockets must not depend on a process-wide
+            // ConnectivityManager binding. The phone can expose the controller
+            // LAN as a local/Wi-Fi network whose routing semantics differ from
+            // the process default. The gRPC listener therefore uses an explicit
+            // IPv4 wildcard ServerSocketFactory, while outbound probes select
+            // the LAN network explicitly.
+            diagnostics.info(TAG, "Android process network binding skipped for inbound server")
             localServer = OkHttpServerBuilder
                 .forPort(
-                    InetSocketAddress(lanIp, port),
+                    port,
                     InsecureServerCredentials.create()
                 )
+                .socketFactory(GrpcServerSocketFactory())
                 .executor(executor)
                 .addService(NetworkTrustGrpcService(diagnostics))
                 .addService(EngineLibraryGrpcService())
