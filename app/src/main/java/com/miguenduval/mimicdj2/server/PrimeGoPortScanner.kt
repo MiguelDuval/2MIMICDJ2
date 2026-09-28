@@ -17,7 +17,7 @@ object PrimeGoPortScanner {
     private const val FIRST_PORT = 30000
     private const val LAST_PORT = 47000
     private const val CONNECT_TIMEOUT_MS = 120
-    private const val WORKERS = 128
+    private const val WORKERS = 64
     private const val TIMEOUT_SECONDS = 45
 
     data class Result(
@@ -28,19 +28,26 @@ object PrimeGoPortScanner {
 
     fun scan(host: String, onProgress: (completed: Int, total: Int) -> Unit): Result {
         val open = Collections.synchronizedList(mutableListOf<Int>())
+        val nextPort = AtomicInteger(FIRST_PORT)
         val completed = AtomicInteger(0)
         val total = LAST_PORT - FIRST_PORT + 1
         val executor = Executors.newFixedThreadPool(WORKERS)
 
         try {
-            for (port in FIRST_PORT..LAST_PORT) {
+            repeat(WORKERS) {
                 executor.execute {
-                    if (probe(host, port)) {
-                        open.add(port)
-                    }
-                    val done = completed.incrementAndGet()
-                    if (done % 250 == 0 || done == total) {
-                        onProgress(done, total)
+                    while (true) {
+                        val port = nextPort.getAndIncrement()
+                        if (port > LAST_PORT) break
+
+                        if (probe(host, port)) {
+                            open.add(port)
+                        }
+
+                        val done = completed.incrementAndGet()
+                        if (done % 250 == 0 || done == total) {
+                            onProgress(done, total)
+                        }
                     }
                 }
             }
