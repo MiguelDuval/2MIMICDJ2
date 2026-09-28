@@ -27,9 +27,11 @@ import java.util.Enumeration
  * Network diagnostics and monitoring for the diagnostic app.
  * Tracks active Wi-Fi network, local IPs, interface details, and connectivity state.
  */
-class NetworkDiagnostics(private val context: Context) {
+class NetworkDiagnostics(context: Context) {
 
-    private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    // Keep a process-lifetime context so diagnostics never retain an Activity.
+    private val appContext = context.applicationContext
+    private val connectivityManager = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
             log("Network available: $network")
@@ -146,7 +148,7 @@ class NetworkDiagnostics(private val context: Context) {
             }
 
             val ssid = try {
-                val wifiManager = context.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+                val wifiManager = appContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
                 val connInfo = wifiManager.connectionInfo
                 connInfo?.ssid?.replace("\"", "") ?: "unknown"
             } catch (e: Exception) {
