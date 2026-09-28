@@ -52,7 +52,7 @@ class MainActivity : AppCompatActivity() {
             serverService = binder.getService()
             isBound = true
             Timber.tag(TAG).d("Service connected")
-            updateServerUI(true)
+            updateServerUI(binder.getService().getBoundPort() != 0)
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
@@ -113,7 +113,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun bindToServerService() {
         val intent = Intent(this, NetworkServerService::class.java)
-        bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        if (!isBound) {
+            bindService(intent, serviceConnection, 0)
+        }
     }
 
     private fun unbindFromServerService() {
@@ -137,14 +139,14 @@ class MainActivity : AppCompatActivity() {
             putExtra(NetworkServerService.EXTRA_PORT, 50010)
         }
         ContextCompat.startForegroundService(this, intent)
-        updateServerUI(true)
+        if (!isBound) bindToServerService()
     }
 
     private fun stopServer() {
         val intent = Intent(this, NetworkServerService::class.java).apply {
             action = NetworkServerService.ACTION_STOP_SERVER
         }
-        startService(intent)
+        serverService?.requestStop() ?: startService(intent)
         updateServerUI(false)
     }
 
@@ -186,6 +188,7 @@ class MainActivity : AppCompatActivity() {
             while (true) {
                 if (serverService != null) {
                     updateDiagnosticsUI()
+                    updateServerUI(serverService?.getBoundPort() != 0)
                 }
                 delay(2000)
             }
