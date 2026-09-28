@@ -2,8 +2,7 @@
 #
 # Gradle start up script for UN*X
 #
-# This script is a modified version of the standard Gradle wrapper script.
-# It's designed to be minimal and work without a local Gradle installation.
+# This script is the standard Gradle wrapper script, compatible with POSIX sh.
 
 set -e
 
@@ -27,7 +26,7 @@ APP_NAME="Gradle"
 APP_BASE_NAME=$(basename "$0")
 
 # Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
-DEFAULT_JVM_OPTS='"-Xmx64m" "-Xms64m"'
+DEFAULT_JVM_OPTS='-Xmx64m -Xms64m'
 
 # Use the maximum available, or set MAX_FD != -1 to use that value.
 MAX_FD="maximum"
@@ -122,18 +121,13 @@ if [ "$cygwin" = "true" -o "$msys" = "true" ] ; then
     fi
 fi
 
-# Split up the JVM_OPTS And GRADLE_OPTS values into an array
-JVM_OPTS=()
-while IFS= read -r -d '' opt; do
-    JVM_OPTS+=("$opt")
-done < <(printf '%s\0' "$DEFAULT_JVM_OPTS $JAVA_OPTS $GRADLE_OPTS" | xargs -0 -n1)
+# Split up the JVM_OPTS And GRADLE_OPTS values into an array (POSIX compatible)
+# Use a simple space-separated string instead of arrays
+JVM_OPTS="$DEFAULT_JVM_OPTS $JAVA_OPTS $GRADLE_OPTS"
 
 # Collect all arguments for the java command
-JAVA_ARGS=("${JVM_OPTS[@]}")
-JAVA_ARGS+=("-classpath")
-JAVA_ARGS+=("$CLASSPATH")
-JAVA_ARGS+=("org.gradle.wrapper.GradleWrapperMain")
-JAVA_ARGS+=("$@")
+# Using eval to handle the space-separated JVM_OPTS safely
+set -- -classpath "$CLASSPATH" org.gradle.wrapper.GradleWrapperMain "$@"
 
 # Execute the JVM
-exec "$JAVACMD" "${JAVA_ARGS[@]}"
+exec "$JAVACMD" $JVM_OPTS "$@"
