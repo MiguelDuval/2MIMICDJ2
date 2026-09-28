@@ -23,7 +23,7 @@ android {
             isShrinkResources = false
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
-            matchingFallbacks = listOf("release")
+            matchingFallbacks += listOf("release")
         }
         release {
             isMinifyEnabled = true
