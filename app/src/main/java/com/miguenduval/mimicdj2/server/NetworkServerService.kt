@@ -191,7 +191,10 @@ class NetworkServerService : Service() {
 
             diagnostics.info(TAG, "EAAS gRPC server listening on $lanIp:$port")
             scope.launch { probeLocalGrpcTcp(lanIp, port) }
-            startHttpServer(port + 10)
+            // Diagnostic v5: standard EAAS gRPC port, while HTTP uses the
+            // known-bindable alternate port to isolate session establishment.
+            val httpPort = if (port == 50010) 50110 else port + 10
+            startHttpServer(httpPort)
             startEaasDiscoveryListener()
             updateNotification("EAAS gRPC + HTTP + discovery on $lanIp:$port")
         } catch (e: Exception) {
@@ -446,7 +449,7 @@ class NetworkServerService : Service() {
                             hostname = "Mimic DJ",
                             grpcHost = responseHost,
                             grpcPort = boundPort,
-                            softwareVersion = BuildConfig.VERSION_NAME,
+                            softwareVersion = "1.0.0",
                             extra = "_"
                         )
 
