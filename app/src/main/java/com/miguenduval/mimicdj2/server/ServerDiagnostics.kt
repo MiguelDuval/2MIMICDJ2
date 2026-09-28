@@ -29,6 +29,7 @@ class ServerDiagnostics {
     val discoveryTxCount = AtomicLong(0)
     val connectionsOpened = AtomicLong(0)
     val rawTcpAccepts = AtomicLong(0)
+    val externalRawTcpAccepts = AtomicLong(0)
     val trustMessages = AtomicLong(0)
     val rpcCount = AtomicLong(0)
     val fileRequests = AtomicLong(0)
@@ -50,6 +51,9 @@ class ServerDiagnostics {
     // Reverse-connectivity probes: the phone checks whether the Prime GO
     // itself exposes a TCP service on candidate ports. This is read-only
     // diagnostics and does not change the server protocol.
+    @Volatile var serverGrpcPort: Int = 0
+    @Volatile var httpServerPort: Int = 0
+    @Volatile var httpServerBindError: String? = null
     @Volatile var primeGoPort50010: String? = null
     @Volatile var primeGoPort50020: String? = null
     @Volatile var primeGoPort50021: String? = null
@@ -111,6 +115,7 @@ class ServerDiagnostics {
         sb.append("--- Sessions ---\n")
         sb.append("Connections: ${connectionsOpened.get()}\n")
         sb.append("Raw TCP accepts: ${rawTcpAccepts.get()}\n")
+        sb.append("External TCP accepts: ${externalRawTcpAccepts.get()}\n")
         sb.append("Trust Msgs: ${trustMessages.get()}\n")
         sb.append("RPC Calls: ${rpcCount.get()}\n")
         sb.append("RPC Methods: ${observedRpcMethods.joinToString(", ") { if (it.isEmpty()) "none" else it }}\n")
@@ -119,6 +124,9 @@ class ServerDiagnostics {
         sb.append("Last Track: ${if (lastTrackRequest > 0) fmt.format(Date(lastTrackRequest)) else "never"}\n")
         sb.append("Last Client IP: ${lastClientIp ?: "none"}\n")
         sb.append("Last Contact: ${if (lastClientContact > 0) fmt.format(Date(lastClientContact)) else "never"}\n\n")
+        sb.append("Server gRPC port: ${if (serverGrpcPort > 0) serverGrpcPort else "not bound"}\n")
+        sb.append("Server HTTP 50020: ${if (httpServerPort == 50020) "BOUND" else "NOT BOUND"}\n")
+        sb.append("Server HTTP bind error: ${httpServerBindError ?: "none"}\n\n")
         sb.append("Prime GO TCP/50010: ${primeGoPort50010 ?: "not probed"}\n")
         sb.append("Prime GO TCP/50020: ${primeGoPort50020 ?: "not probed"}\n")
         sb.append("Prime GO TCP/50021: ${primeGoPort50021 ?: "not probed"}\n")
