@@ -91,8 +91,11 @@ object PortDiagnostics {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 Os.setsockoptInt(fd, OsConstants.SOL_SOCKET, OsConstants.SO_REUSEADDR, 1)
             }
-            if (reusePort && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                Os.setsockoptInt(fd, OsConstants.SOL_SOCKET, OsConstants.SO_REUSEPORT, 1)
+            if (reusePort) {
+                val reusePortConstant = runCatching {
+                    OsConstants::class.java.getField("SO_REUSEPORT").getInt(null)
+                }.getOrNull() ?: return "SO_REUSEPORT_UNAVAILABLE"
+                Os.setsockoptInt(fd, OsConstants.SOL_SOCKET, reusePortConstant, 1)
             }
             Os.bind(fd, InetAddress.getByName(host), port)
             Os.listen(fd, 4)
