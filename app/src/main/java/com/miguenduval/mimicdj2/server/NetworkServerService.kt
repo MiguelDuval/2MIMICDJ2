@@ -49,6 +49,8 @@ class NetworkServerService : Service() {
     private val executor = Executors.newCachedThreadPool()
     private var boundPort = 0
     private var boundInterface: String? = null
+    private val lifecycleLock = Any()
+    @Volatile private var serverState = ServerState.STOPPED
 
     // Binder for service binding
     inner class LocalBinder : Binder() {
@@ -93,10 +95,23 @@ class NetworkServerService : Service() {
     }
 
     private fun startServer(port: Int, iface: String?) {
-        if (grpcServer != null) {
-            diagnostics.warn(TAG, "Server already running on port $boundPort")
-            return
+        synchronized(lifecycleLock) {
+            when (serverState) {
+                ServerState.RUNNING, ServerState.STARTING -> {
+                    diagnostics.warn(TAG, "Ignoring duplicate start; state=$serverState")
+                    return
+                }
+                ServerState.STOPPING -> {
+                    diagnostics.warn(TAG, "Ignoring start while server is stopping")
+                    return
+                }
+                ServerState.STOPPED -> {
+                    serverState = ServerState.STARTING
+                }
+            }
         }
+        // Enter foreground immediately; do not wait for network sockets to bind.
+        updateNotification("Starting EAAS server…")
         scope.launch { doStartServer(port, iface) }
     }
 
@@ -115,6 +130,7 @@ class NetworkServerService : Service() {
 
             boundPort = port
             boundInterface = bindHost
+            synchronized(lifecycleLock) { serverState = ServerState.RUNNING }
             diagnostics.info(TAG, "EAAS gRPC server listening on $bindHost:$port")
             startHttpServer()
             startEaasDiscoveryListener()
@@ -125,6 +141,8 @@ class NetworkServerService : Service() {
             grpcServer = null
             boundPort = 0
             boundInterface = null
+            synchronized(lifecycleLock) { serverState = ServerState.STOPPED }
+            stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
     }
@@ -350,6 +368,13 @@ class NetworkServerService : Service() {
     }
 
     private fun stopServer() {
+        synchronized(lifecycleLock) {
+            if (serverState == ServerState.STOPPED || serverState == ServerState.STOPPING) {
+                diagnostics.warn(TAG, "Ignoring duplicate stop; state=$serverState")
+                return
+            }
+            serverState = ServerState.STOPPING
+        }
         diagnostics.info(TAG, "Stopping server")
         try { grpcServer?.shutdownNow() } catch (e: Exception) { diagnostics.error(TAG, "Error shutting down gRPC", e) }
         grpcServer = null
@@ -368,6 +393,7 @@ class NetworkServerService : Service() {
         boundInterface = null
         httpBoundPort = 0
         httpBindError = null
+        synchronized(lifecycleLock) { serverState = ServerState.STOPPED }
         updateNotification("Server stopped")
         stopForeground(true)
         stopSelf()
@@ -416,11 +442,14 @@ class NetworkServerService : Service() {
     fun requestStop() = stopServer()
 
     fun getDiagnostics(): ServerDiagnostics = diagnostics
+    fun getServerState(): ServerState = serverState
     fun getBoundPort(): Int = boundPort
     fun getBoundInterface(): String? = boundInterface
     fun getHttpBoundPort(): Int = httpBoundPort
     fun getHttpBindError(): String? = httpBindError
 }
+enum class ServerState { STOPPED, STARTING, RUNNING, STOPPING }
+
 private class RpcDiagnosticsInterceptor(
     private val diagnostics: ServerDiagnostics
 ) : ServerInterceptor {
