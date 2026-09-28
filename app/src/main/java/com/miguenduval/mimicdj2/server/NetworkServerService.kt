@@ -169,7 +169,7 @@ class NetworkServerService : Service() {
             scope.launch { probeLocalGrpcTcp(lanIp, port) }
             startHttpServer()
             startEaasDiscoveryListener()
-            updateNotification("EAAS gRPC + HTTP + discovery on $bindHost:$port")
+            updateNotification("EAAS gRPC + HTTP + discovery on $lanIp:$port")
         } catch (e: Exception) {
             diagnostics.error(TAG, "Failed to start EAAS gRPC server", e)
             try { localServer?.shutdownNow() } catch (_: Exception) {}
