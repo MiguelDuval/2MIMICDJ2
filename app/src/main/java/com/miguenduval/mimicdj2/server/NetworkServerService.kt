@@ -165,7 +165,7 @@ class NetworkServerService : Service() {
                     port,
                     InsecureServerCredentials.create()
                 )
-                .socketFactory(GrpcServerSocketFactory())
+                .socketFactory(GrpcServerSocketFactory(diagnostics))
                 .executor(executor)
                 .addService(NetworkTrustGrpcService(diagnostics))
                 .addService(EngineLibraryGrpcService())
