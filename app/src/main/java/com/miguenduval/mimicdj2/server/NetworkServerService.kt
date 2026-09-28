@@ -25,7 +25,8 @@ import io.grpc.ServerCall
 import io.grpc.ServerCallHandler
 import io.grpc.ServerInterceptor
 import io.grpc.ServerTransportFilter
-import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder
+import io.grpc.InsecureServerCredentials
+import io.grpc.okhttp.OkHttpServerBuilder
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -115,13 +116,36 @@ class NetworkServerService : Service() {
         scope.launch { doStartServer(port, iface) }
     }
 
+    private fun probeLocalGrpcTcp(host: String, port: Int) {
+        runCatching {
+            java.net.Socket().use { socket ->
+                socket.connect(InetSocketAddress(host, port), 1200)
+            }
+            diagnostics.info(TAG, "Phone self-test TCP/$port: OK")
+        }.onFailure { e ->
+            diagnostics.error(TAG, "Phone self-test TCP/$port failed", e)
+        }
+    }
+
     private fun doStartServer(port: Int, iface: String?) {
         var localServer: Server? = null
         try {
-            val bindHost = if (iface.isNullOrBlank()) "0.0.0.0" else iface
+            val lanIp = if (iface.isNullOrBlank()) {
+                NetworkAddress.currentLanIpv4(applicationContext)
+            } else iface
 
-            localServer = NettyServerBuilder
-                .forPort(port)
+            if (lanIp.isNullOrBlank()) {
+                throw IllegalStateException("No LAN IPv4 address available")
+            }
+
+            val binding = NetworkAddress.bindProcessToLanIpv4Network(applicationContext, lanIp)
+            diagnostics.info(TAG, "Android network binding for $lanIp: $binding")
+
+            localServer = OkHttpServerBuilder
+                .forPort(
+                    InetSocketAddress(lanIp, port),
+                    InsecureServerCredentials.create()
+                )
                 .executor(executor)
                 .addService(NetworkTrustGrpcService(diagnostics))
                 .intercept(RpcDiagnosticsInterceptor(diagnostics))
@@ -137,11 +161,12 @@ class NetworkServerService : Service() {
                 }
                 grpcServer = localServer
                 boundPort = port
-                boundInterface = bindHost
+                boundInterface = lanIp
                 serverState = ServerState.RUNNING
             }
 
-            diagnostics.info(TAG, "EAAS gRPC server listening on $bindHost:$port")
+            diagnostics.info(TAG, "EAAS gRPC server listening on $lanIp:$port")
+            scope.launch { probeLocalGrpcTcp(lanIp, port) }
             startHttpServer()
             startEaasDiscoveryListener()
             updateNotification("EAAS gRPC + HTTP + discovery on $bindHost:$port")
