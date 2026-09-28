@@ -578,8 +578,8 @@ private class GrpcTransportDiagnosticsFilter(
         return transportAttrs
     }
 
-    override fun transportTerminated(transportAttrs: Attributes) {
-        val remote = transportAttrs.get(Grpc.TRANSPORT_ATTR_REMOTE_ADDR)
+    override fun transportTerminated(transportAttrs: Attributes?) {
+        val remote = transportAttrs?.get(Grpc.TRANSPORT_ATTR_REMOTE_ADDR)
         diagnostics.info("EAAS-Transport", "gRPC transport terminated from ${remote ?: "unknown"}")
     }
 }
