@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.net.wifi.WifiManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
@@ -27,6 +28,8 @@ class NetworkServerService : Service() {
     private val scope = CoroutineScope(Dispatchers.IO + Job())
     private var tcpListener: ServerSocketChannel? = null
     private var udpListener: java.net.DatagramSocket? = null
+    private var multicastLock: WifiManager.MulticastLock? = null
+    private lateinit var eaasToken: ByteArray
     private val executor = Executors.newCachedThreadPool()
     private var boundPort = 0
     private var boundInterface: String? = null
@@ -51,6 +54,7 @@ class NetworkServerService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        eaasToken = com.miguenduval.mimicdj2.network.EaasDiscovery.newToken()
         diagnostics.info(TAG, "Service created")
     }
 
@@ -100,7 +104,7 @@ class NetworkServerService : Service() {
             boundPort = socket?.localPort ?: port
             diagnostics.info(TAG, "TCP server listening on ${boundInterface}:$boundPort")
             acceptConnections()
-            startUdpListener(port - 1)
+            startEaasDiscoveryListener()
             updateNotification("Server running on ${boundInterface}:$boundPort")
         } catch (e: Exception) {
             diagnostics.error(TAG, "Failed to start server", e)
@@ -165,40 +169,112 @@ class NetworkServerService : Service() {
         }
     }
 
-    private fun startUdpListener(port: Int) {
+    private fun startEaasDiscoveryListener() {
         scope.launch {
             try {
-                udpListener = java.net.DatagramSocket(port)
-                udpListener?.soTimeout = 1000
-                diagnostics.info(TAG, "UDP listener on port $port")
+                val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                multicastLock = wifi?.createMulticastLock("2MIMICDJ2-EAAS")?.apply {
+                    setReferenceCounted(false)
+                    acquire()
+                }
+
+                udpListener = java.net.DatagramSocket(null).apply {
+                    reuseAddress = true
+                    broadcast = true
+                    bind(InetSocketAddress(EaasDiscovery.PORT))
+                    soTimeout = 1000
+                }
+
+                diagnostics.info(TAG, "EAAS discovery listener on UDP ${EaasDiscovery.PORT}")
                 val buffer = ByteArray(2048)
-                val packet = java.net.DatagramPacket(buffer, buffer.size)
+
                 while (udpListener?.isClosed == false) {
                     try {
+                        val packet = java.net.DatagramPacket(buffer, buffer.size)
                         udpListener?.receive(packet)
+
                         val length = packet.length
                         val data = buffer.copyOf(length)
-                        val sender = packet.socketAddress
+                        val sender = packet.socketAddress as? InetSocketAddress
+                        val senderIp = sender?.address?.hostAddress
+
                         diagnostics.discoveryRxCount.incrementAndGet()
                         diagnostics.lastDiscoveryRx = System.currentTimeMillis()
                         diagnostics.lastDiscoveryRxPayload = data
-                        diagnostics.lastClientIp = (sender as? InetSocketAddress)?.address?.hostAddress
-                        diagnostics.info(TAG, "UDP discovery from $sender: ${bytesToHex(data)}")
-                    } catch (e: java.net.SocketTimeoutException) { }
-                    catch (e: Exception) {
-                        if (udpListener?.isClosed == false) diagnostics.error(TAG, "UDP receive error", e)
+                        diagnostics.lastClientIp = senderIp
+                        diagnostics.info(TAG, "EAAS discovery RX from $senderIp:${sender?.port}: ${bytesToHex(data)}")
+
+                        if (!EaasDiscovery.isDiscoveryRequest(data)) {
+                            diagnostics.debug(TAG, "Ignoring non-EAAS discovery packet")
+                            continue
+                        }
+
+                        val responseHost = resolveLocalIPv4For(sender?.address)
+                        val response = EaasDiscovery.buildResponse(
+                            token = eaasToken,
+                            hostname = "Mimic DJ",
+                            grpcHost = responseHost,
+                            grpcPort = 50010,
+                            softwareVersion = BuildConfig.VERSION_NAME,
+                            extra = "_"
+                        )
+
+                        sender?.let {
+                            val reply = java.net.DatagramPacket(
+                                response,
+                                response.size,
+                                it.address,
+                                it.port
+                            )
+                            udpListener?.send(reply)
+                            diagnostics.discoveryTxCount.incrementAndGet()
+                            diagnostics.lastDiscoveryTx = System.currentTimeMillis()
+                            diagnostics.lastDiscoveryTxPayload = response
+                            diagnostics.info(TAG, "EAAS discovery TX to ${it.address.hostAddress}:${it.port}: ${bytesToHex(response)}")
+                        }
+                    } catch (_: java.net.SocketTimeoutException) {
+                        // Periodic wake-up lets coroutine observe service shutdown.
+                    } catch (e: Exception) {
+                        if (udpListener?.isClosed == false) {
+                            diagnostics.error(TAG, "EAAS discovery receive error", e)
+                        }
                     }
                 }
             } catch (e: Exception) {
-                diagnostics.warn(TAG, "Failed to start UDP listener on $port: $e")
+                diagnostics.error(TAG, "Failed to start EAAS discovery listener on UDP ${EaasDiscovery.PORT}", e)
             }
         }
+    }
+
+    private fun resolveLocalIPv4For(peer: InetAddress?): String {
+        if (peer != null) {
+            runCatching {
+                java.net.DatagramSocket().use { probe ->
+                    probe.connect(peer, 9)
+                    val local = probe.localAddress
+                    if (local is java.net.Inet4Address && !local.isLoopbackAddress && !local.isLinkLocalAddress) {
+                        return local.hostAddress
+                    }
+                }
+            }
+        }
+
+        return java.net.NetworkInterface.getNetworkInterfaces()?.toList()
+            ?.asSequence()
+            ?.filter { runCatching { it.isUp }.getOrDefault(false) }
+            ?.filterNot { it.isLoopback || it.isVirtual }
+            ?.flatMap { it.inetAddresses.toList().asSequence() }
+            ?.filterIsInstance<java.net.Inet4Address>()
+            ?.firstOrNull { !it.isLoopbackAddress && !it.isLinkLocalAddress }
+            ?.hostAddress
+            ?: "0.0.0.0"
     }
 
     private fun stopServer() {
         diagnostics.info(TAG, "Stopping server")
         try { tcpListener?.close(); tcpListener = null } catch (e: Exception) { diagnostics.error(TAG, "Error closing TCP", e) }
         try { udpListener?.close(); udpListener = null } catch (e: Exception) { diagnostics.error(TAG, "Error closing UDP", e) }
+        try { multicastLock?.let { if (it.isHeld) it.release() }; multicastLock = null } catch (e: Exception) { diagnostics.warn(TAG, "Error releasing Wi-Fi multicast lock: $e") }
         boundPort = 0; boundInterface = null
         updateNotification("Server stopped")
         stopForeground(true); stopSelf()
