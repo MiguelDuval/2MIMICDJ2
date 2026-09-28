@@ -148,6 +148,8 @@ class NetworkServerService : Service() {
                 )
                 .executor(executor)
                 .addService(NetworkTrustGrpcService(diagnostics))
+                .addService(EngineLibraryGrpcService())
+                .addService(MimicEngineSyncService())
                 .intercept(RpcDiagnosticsInterceptor(diagnostics))
                 .addTransportFilter(GrpcTransportDiagnosticsFilter(diagnostics))
                 .build()
@@ -471,6 +473,7 @@ class NetworkServerService : Service() {
         boundInterface = null
         httpBoundPort = 0
         httpBindError = null
+        NetworkAddress.clearProcessBinding(applicationContext)
         diagnostics.shutdown()
         executor.shutdown()
         scope.cancel()
