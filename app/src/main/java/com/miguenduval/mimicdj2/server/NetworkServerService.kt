@@ -141,12 +141,14 @@ class NetworkServerService : Service() {
                 )
 
                 try {
-                    Os.setsockoptInt(
-                        fd,
-                        OsConstants.SOL_SOCKET,
-                        OsConstants.SO_REUSEADDR,
-                        1
-                    )
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        Os.setsockoptInt(
+                            fd,
+                            OsConstants.SOL_SOCKET,
+                            OsConstants.SO_REUSEADDR,
+                            1
+                        )
+                    }
                     // Do not bind this descriptor to a ConnectivityManager Network.
                     // The old Mimic branch removed that step because it could break
                     // ingress on local/hotspot interfaces.
