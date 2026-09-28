@@ -112,7 +112,13 @@ class NetworkServerService : Service() {
             }
         }
         // Enter foreground immediately; do not wait for network sockets to bind.
-        updateNotification("Starting EAAS server…")
+        try {
+            updateNotification("Starting EAAS server…")
+        } catch (t: Throwable) {
+            diagnostics.error(TAG, "Failed to enter foreground", t)
+            synchronized(lifecycleLock) { serverState = ServerState.STOPPED }
+            return
+        }
         scope.launch { doStartServer(port, iface) }
     }
 
