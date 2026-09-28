@@ -175,6 +175,7 @@ jobs:
           fi
 
       - name: Upload build artifacts
+        if: false
         if: hashFiles('ci-artifacts/**') != ''
         uses: actions/upload-artifact@v7
         with:
@@ -183,7 +184,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
       - name: Publish raw debug APK
-        if: github.event_name == 'push' && github.ref == 'refs/heads/agent/clean-slate'
+        if: github.event_name == 'push' && github.ref != 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -191,9 +192,10 @@ jobs:
           set -euo pipefail
           APK="app/build/outputs/apk/debug/app-debug.apk"
           test -s "$APK"
-          gh release delete mimicdj2-test --cleanup-tag --yes || true
-          gh release create mimicdj2-test \
+          TAG="mimicdj2-test-${GITHUB_REF_NAME//\//-}"
+          gh release delete "$TAG" --cleanup-tag --yes || true
+          gh release create "$TAG" \
             "$APK" \
             --prerelease \
-            --title "2MIMICDJ2 test APK" \
+            --title "2MIMICDJ2 test APK — ${GITHUB_REF_NAME}" \
             --notes "Raw APK for Prime GO hardware testing. Commit ${GITHUB_SHA}."
