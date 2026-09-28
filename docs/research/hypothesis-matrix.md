@@ -5,21 +5,21 @@
 | Layer | Question | Evidence Status | Evidence Reference | Current Hypothesis | Confidence |
 |-------|----------|-----------------|-------------------|-------------------|------------|
 | **Link** | Ethernet/Wi-Fi only? | UNKNOWN — NEEDS EVIDENCE | | Wi-Fi (Prime GO has no Ethernet) | Low |
-| **Discovery** | Broadcast/multicast/unicast? | UNKNOWN — NEEDS EVIDENCE | | UDP broadcast (per historical hints) | Low |
-| **Discovery** | Source port? | UNKNOWN — NEEDS EVIDENCE | | Unknown | Low |
-| **Discovery** | Destination port? | UNKNOWN — NEEDS EVIDENCE | | 11224 (historical hint) | Low |
-| **Discovery** | Interval/trigger? | UNKNOWN — NEEDS EVIDENCE | | On Source menu open, periodic | Low |
-| **Discovery** | Payload format? | UNKNOWN — NEEDS EVIDENCE | | EAAS/StageLinq beacon | Low |
-| **Discovery** | Response format? | UNKNOWN — NEEDS EVIDENCE | | EAAS service advertisement | Low |
-| **Discovery** | Address advertisement? | UNKNOWN — NEEDS EVIDENCE | | Server IP in response | Low |
-| **Discovery** | Service/port advertisement? | UNKNOWN — NEEDS EVIDENCE | | Library port, file port | Low |
-| **Discovery** | UUID/token/device identifier? | UNKNOWN — NEEDS EVIDENCE | | Device UUID in beacon | Low |
+| **Discovery** | Broadcast/multicast/unicast? | OBSERVED — Prime GO sends EAAS discovery to server | 2026-09-28 physical test | UDP/EAAS request-response | High |
+| **Discovery** | Source port? | OBSERVED | 2026-09-28 physical test: Prime GO UDP source port 44829 | Ephemeral source port | High |
+| **Discovery** | Destination port? | OBSERVED | 2026-09-28 physical test: UDP 11224 | 11224 | High |
+| **Discovery** | Interval/trigger? | OBSERVED | 2026-09-28 physical test: requests about every 2 s while source UI active | Periodic retry during source discovery | High |
+| **Discovery** | Payload format? | OBSERVED | 2026-09-28 physical test: `45 41 41 53 01 00` | EAAS v1 request | High |
+| **Discovery** | Response format? | OBSERVED | 2026-09-28 physical test: `EAAS 01 01` + 16-byte token + hostname + grpc URL + version + extra | EAAS service advertisement | High |
+| **Discovery** | Address advertisement? | OBSERVED | 2026-09-28 physical test: `grpc://10.122.26.146:50010` | Server IP in response | High |
+| **Discovery** | Service/port advertisement? | PARTIAL — gRPC port observed, HTTP port not advertised in the captured response | 2026-09-28 physical test | gRPC endpoint 50010 advertised; 50020 remains a separate hypothesis | Medium |
+| **Discovery** | UUID/token/device identifier? | PARTIAL — 16-byte token observed in server response; no UUID in request | 2026-09-28 physical test | Token present in response, UUID mechanism still unknown | Medium |
 | **Trust** | Trust handshake exists? | UNKNOWN — NEEDS EVIDENCE | | Unknown | Low |
 | **Trust** | Request/response sequence | UNKNOWN — NEEDS EVIDENCE | | Unknown | Low |
 | **Trust** | Cryptography or simple approval? | UNKNOWN — NEEDS EVIDENCE | | Simple approval (historical) | Low |
 | **Trust** | Interactive approval? | UNKNOWN — NEEDS EVIDENCE | | Unknown | Low |
-| **Transport** | TCP/UDP? | UNKNOWN — NEEDS EVIDENCE | | TCP for library/file, UDP for discovery | Low |
-| **Transport** | Fixed or dynamic port? | UNKNOWN — NEEDS EVIDENCE | | Dynamic (advertised in discovery) | Low |
+| **Transport** | TCP/UDP? | PARTIAL — UDP discovery confirmed; no inbound TCP session observed after discovery | 2026-09-28 physical test | TCP likely next stage, but target-specific evidence is still missing | Medium |
+| **Transport** | Fixed or dynamic port? | UNKNOWN — target did not open a TCP session in this test | 2026-09-28 physical test | Do not treat 50010/50020 as proven architecture yet | Low |
 | **Transport** | HTTP/1.1 / HTTP/2 / custom framing? | UNKNOWN — NEEDS EVIDENCE | | HTTP/2 + gRPC (SC6000) or custom | Low |
 | **RPC** | Service name? | UNKNOWN — NEEDS EVIDENCE | | engine.LibraryService (SC6000) | Low |
 | **RPC** | Method names? | UNKNOWN — NEEDS EVIDENCE | | GetLibrary, GetTracks, GetTrack | Low |
@@ -42,8 +42,8 @@
 | **File Transfer** | Redirects? | UNKNOWN — NEEDS EVIDENCE | | Unknown | Low |
 | **File Transfer** | Retries? | UNKNOWN — NEEDS EVIDENCE | | Unknown | Low |
 | **File Transfer** | Connection reuse? | UNKNOWN — NEEDS EVIDENCE | | Keep-alive likely | Low |
-| **Failure** | Expected errors? | UNKNOWN — NEEDS EVIDENCE | | Unknown | Low |
-| **Network** | Interface selection? | UNKNOWN — NEEDS EVIDENCE | | Wi-Fi interface bound | Low |
+| **Failure** | Expected errors? | OBSERVED | 2026-09-28 physical test: Prime GO UI reports `No connection was detected`; server saw discovery only | Failure occurs after discovery and before observed RPC/file activity | High |
+| **Network** | Interface selection? | OBSERVED | 2026-09-28 physical test: Android interface `wlan1`, server IP `10.122.26.146`, Prime GO `10.122.26.191` | Wi-Fi LAN path | High |
 | **Lifecycle** | Behavior after Wi-Fi changes? | UNKNOWN — NEEDS EVIDENCE | | Re-discovery? | Low |
 
 ## Evidence Gap Summary
