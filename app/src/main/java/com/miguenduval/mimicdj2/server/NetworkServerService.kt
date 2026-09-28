@@ -411,6 +411,16 @@ class NetworkServerService : Service() {
                         if (!primeGoHighPortScanStarted) {
                             primeGoHighPortScanStarted = true
                             scope.launch {
+                                kotlinx.coroutines.delay(5000L)
+                                if (diagnostics.rawTcpAccepts.get() > 0 ||
+                                    diagnostics.connectionsOpened.get() > 0 ||
+                                    diagnostics.rpcCount.get() > 0
+                                ) {
+                                    diagnostics.primeGoHighPortScan = "SKIPPED: server contact already observed"
+                                    diagnostics.primeGoHighPortScanProgress = "not needed"
+                                    return@launch
+                                }
+
                                 val peer = sender?.address?.hostAddress
                                 if (!peer.isNullOrBlank()) {
                                     diagnostics.primeGoHighPortScanProgress = "STARTING"
