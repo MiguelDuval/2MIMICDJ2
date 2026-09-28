@@ -2,9 +2,11 @@ package com.miguenduval.mimicdj2.server
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import timber.log.Timber
+import java.io.StringWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -16,7 +18,7 @@ import java.util.concurrent.atomic.AtomicLong
  */
 class ServerDiagnostics {
 
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val scope = CoroutineScope(Dispatchers.IO + Job())
     private val logChannel = Channel<LogEntry>(capacity = 1000)
     private val logBuffer = mutableListOf<LogEntry>()
     private val maxLogEntries = 500
@@ -118,7 +120,7 @@ class ServerDiagnostics {
         sb.append("--- Recent Logs (last 50) ---\n")
         logBuffer.takeLast(50).forEach { entry ->
             sb.append("[${fmt.format(Date(entry.timestamp))}] ${entry.level} ${entry.tag}: ${entry.message}\n")
-            entry.throwable?.printStackTrace(java.io.PrintWriter(sb))
+            entry.throwable?.printStackTrace(java.io.PrintWriter(StringWriter().also { sb.append(it.toString()) }))
         }
 
         return sb.toString()

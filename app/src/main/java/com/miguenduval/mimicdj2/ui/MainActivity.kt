@@ -103,7 +103,6 @@ class MainActivity : AppCompatActivity() {
         networkDiagnostics.networkInfo.observe(this, Observer { info ->
             updateNetworkUI(info)
         })
-        NetworkDiagnostics.onConnectivityChanged = { runOnUiThread { refreshNetworkInfo() } }
     }
 
     private fun stopNetworkMonitoring() {
@@ -177,10 +176,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshNetworkInfo() {
-        val activeNetwork = (getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager).activeNetwork
-        if (activeNetwork != null) {
-            networkDiagnostics.updateNetworkInfo(activeNetwork)
-        }
+        networkDiagnostics.refresh()
     }
 
     private fun startPeriodicUIUpdate() {

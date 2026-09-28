@@ -12,6 +12,7 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.net.Inet4Address
@@ -63,7 +64,7 @@ class NetworkDiagnostics(private val context: Context) {
     private val _networkInfo = MutableLiveData<NetworkInfoData>()
     val networkInfo: LiveData<NetworkInfoData> = _networkInfo
 
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val scope = CoroutineScope(Dispatchers.IO + kotlinx.coroutines.Job())
 
     data class NetworkInfoData(
         val isConnected: Boolean,
@@ -80,6 +81,15 @@ class NetworkDiagnostics(private val context: Context) {
     fun start() {
         scope.launch {
             registerCallback()
+            val activeNetwork = connectivityManager.activeNetwork
+            if (activeNetwork != null) {
+                updateNetworkInfo(activeNetwork)
+            }
+        }
+    }
+
+    fun refresh() {
+        scope.launch {
             val activeNetwork = connectivityManager.activeNetwork
             if (activeNetwork != null) {
                 updateNetworkInfo(activeNetwork)

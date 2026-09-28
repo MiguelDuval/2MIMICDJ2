@@ -13,6 +13,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -22,7 +23,7 @@ import java.util.concurrent.Executors
 
 class NetworkServerService : Service() {
     private val diagnostics = ServerDiagnostics()
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val scope = CoroutineScope(Dispatchers.IO + Job())
     private var tcpListener: ServerSocketChannel? = null
     private var udpListener: java.net.DatagramSocket? = null
     private val executor = Executors.newCachedThreadPool()
@@ -50,6 +51,10 @@ class NetworkServerService : Service() {
         super.onCreate()
         createNotificationChannel()
         diagnostics.info(TAG, "Service created")
+    }
+
+    override fun onBind(intent: Intent?): IBinder {
+        return binder
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -131,7 +136,7 @@ class NetworkServerService : Service() {
             if (bytesRead > 0) {
                 val data = buffer.copyOf(bytesRead)
                 diagnostics.debug(TAG, "Received $bytesRead bytes from $clientAddr: ${bytesToHex(data)}")
-                val preview = data.take(100)
+                val preview = data.copyOf(minOf(data.size, 100))
                 diagnostics.info(TAG, "First bytes from $clientAddr: ${bytesToHex(preview)}")
                 identifyProtocol(data, clientAddr)
                 val response = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK".toByteArray()
@@ -145,17 +150,17 @@ class NetworkServerService : Service() {
     }
 
     private fun identifyProtocol(data: ByteArray, clientAddr: String) {
-        val str = String(data.take(minOf(data.size, 200)), java.nio.charset.StandardCharsets.UTF_8)
+        val str = String(data.copyOf(minOf(data.size, 200)), java.nio.charset.StandardCharsets.UTF_8)
         if (str.startsWith("GET ") || str.startsWith("POST ") || str.startsWith("HEAD ")) {
             diagnostics.info(TAG, "HTTP request from $clientAddr")
-        } else if (data.size >= 4 && data[0] == 0x16 && data[1] == 0x03) {
+        } else if (data.size >= 4 && data[0] == 0x16.toByte() && data[1] == 0x03.toByte()) {
             diagnostics.info(TAG, "TLS handshake from $clientAddr")
         } else if (str.contains("PRI * HTTP/2.0")) {
             diagnostics.info(TAG, "HTTP/2 preface from $clientAddr")
-        } else if (data.size >= 5 && data[0] == 0x00 && data[1] == 0x00 && data[2] == 0x00) {
+        } else if (data.size >= 5 && data[0] == 0x00.toByte() && data[1] == 0x00.toByte() && data[2] == 0x00.toByte()) {
             diagnostics.info(TAG, "Possible gRPC/Protobuf from $clientAddr")
         } else {
-            diagnostics.info(TAG, "Unknown protocol from $clientAddr: ${bytesToHex(data.take(20))}")
+            diagnostics.info(TAG, "Unknown protocol from $clientAddr: ${bytesToHex(data.copyOf(minOf(data.size, 20)))}")
         }
     }
 
