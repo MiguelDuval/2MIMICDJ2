@@ -14,6 +14,7 @@ import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -145,7 +146,7 @@ class NetworkServerService : Service() {
         } catch (e: Exception) {
             diagnostics.error(TAG, "Error handling client $clientAddr", e)
         } finally {
-            try { channel.close() } catch (e: Exception) { diagnostics.debug(TAG, "Error closing", e) }
+            try { channel.close() } catch (e: Exception) { diagnostics.debug(TAG, "Error closing: $e") }
         }
     }
 

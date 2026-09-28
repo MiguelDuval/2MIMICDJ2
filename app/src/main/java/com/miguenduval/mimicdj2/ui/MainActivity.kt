@@ -217,7 +217,7 @@ class MainActivity : AppCompatActivity() {
         val report = diag?.generateDiagnosticReport() ?: "Server not running"
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
         val clip = android.content.ClipData.newPlainText("Diagnostic Report", report)
-        clipboard.primaryClip = clip
+        clipboard.setPrimaryClip(clip)
         Snackbar.make(findViewById(android.R.id.content), "Diagnostic report copied to clipboard", Snackbar.LENGTH_LONG).show()
     }
 

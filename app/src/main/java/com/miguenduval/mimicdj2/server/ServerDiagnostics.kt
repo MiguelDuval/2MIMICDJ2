@@ -3,6 +3,7 @@ package com.miguenduval.mimicdj2.server
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import timber.log.Timber
@@ -120,7 +121,11 @@ class ServerDiagnostics {
         sb.append("--- Recent Logs (last 50) ---\n")
         logBuffer.takeLast(50).forEach { entry ->
             sb.append("[${fmt.format(Date(entry.timestamp))}] ${entry.level} ${entry.tag}: ${entry.message}\n")
-            entry.throwable?.printStackTrace(java.io.PrintWriter(StringWriter().also { sb.append(it.toString()) }))
+            entry.throwable?.let { t ->
+                val writer = StringWriter()
+                t.printStackTrace(java.io.PrintWriter(writer))
+                sb.append(writer.toString())
+            }
         }
 
         return sb.toString()
