@@ -53,6 +53,7 @@ class NetworkServerService : Service() {
     private val lifecycleLock = Any()
     @Volatile private var serverState = ServerState.STOPPED
     @Volatile private var primeGoPortsProbed = false
+    @Volatile private var primeGoHighPortScanStarted = false
 
     // Binder for service binding
     inner class LocalBinder : Binder() {
@@ -407,6 +408,23 @@ class NetworkServerService : Service() {
                             }
                         }
 
+                        if (!primeGoHighPortScanStarted) {
+                            primeGoHighPortScanStarted = true
+                            scope.launch {
+                                val peer = sender?.address?.hostAddress
+                                if (!peer.isNullOrBlank()) {
+                                    diagnostics.primeGoHighPortScanProgress = "STARTING"
+                                    val result = PrimeGoPortScanner.scan(peer) { completed, total ->
+                                        diagnostics.primeGoHighPortScanProgress = "$completed/$total"
+                                    }
+                                    diagnostics.primeGoHighPortScan = result.summary
+                                    diagnostics.primeGoHighPortScanProgress =
+                                        "${result.completed}/${result.total}"
+                                    diagnostics.info(TAG, "Prime GO high-port scan: ${result.summary}")
+                                }
+                            }
+                        }
+
                         val responseHost = resolveLocalIPv4For(sender?.address)
                         val response = EaasDiscovery.buildResponse(
                             token = eaasToken,
@@ -504,6 +522,7 @@ class NetworkServerService : Service() {
         httpBoundPort = 0
         httpBindError = null
         primeGoPortsProbed = false
+        primeGoHighPortScanStarted = false
         NetworkAddress.clearProcessBinding(applicationContext)
 
         synchronized(lifecycleLock) {
