@@ -451,6 +451,8 @@ class NetworkServerService : Service() {
         scope.cancel()
         super.onDestroy()
     }
+    enum class ServerState { STOPPED, STARTING, RUNNING, STOPPING }
+
     /** Called by the bound Activity so Stop cannot depend on a second startService delivery. */
     fun requestStop() = stopServer()
 
@@ -461,7 +463,6 @@ class NetworkServerService : Service() {
     fun getHttpBoundPort(): Int = httpBoundPort
     fun getHttpBindError(): String? = httpBindError
 }
-enum class ServerState { STOPPED, STARTING, RUNNING, STOPPING }
 
 private class RpcDiagnosticsInterceptor(
     private val diagnostics: ServerDiagnostics
