@@ -191,7 +191,7 @@ class NetworkServerService : Service() {
 
             diagnostics.info(TAG, "EAAS gRPC server listening on $lanIp:$port")
             scope.launch { probeLocalGrpcTcp(lanIp, port) }
-            startHttpServer()
+            startHttpServer(port + 10)
             startEaasDiscoveryListener()
             updateNotification("EAAS gRPC + HTTP + discovery on $lanIp:$port")
         } catch (e: Exception) {
@@ -199,7 +199,7 @@ class NetworkServerService : Service() {
             handleStartupFailure(e)
         }
     }
-    private fun startHttpServer() {
+    private fun startHttpServer(httpPort: Int) {
         scope.launch {
             try {
                 // The first Mimic DJ established that 50020 can reject the Java
@@ -223,23 +223,23 @@ class NetworkServerService : Service() {
                     // Do not bind this descriptor to a ConnectivityManager Network.
                     // The old Mimic branch removed that step because it could break
                     // ingress on local/hotspot interfaces.
-                    Os.bind(fd, InetAddress.getByName("0.0.0.0"), 50020)
+                    Os.bind(fd, InetAddress.getByName("0.0.0.0"), httpPort)
                     Os.listen(fd, 64)
                 } catch (t: Throwable) {
                     runCatching { Os.close(fd) }
                     throw IllegalStateException(
-                        "Native HTTP 50020 bind failed: " +
+                        "Native HTTP $httpPort bind failed: " +
                             t.javaClass.simpleName + ": " + (t.message ?: "no message"),
                         t
                     )
                 }
 
                 httpServerFd = fd
-                httpBoundPort = 50020
+                httpBoundPort = httpPort
                 httpBindError = null
-                diagnostics.httpServerPort = 50020
+                diagnostics.httpServerPort = httpPort
                 diagnostics.httpServerBindError = null
-                diagnostics.info(TAG, "EAAS HTTP native server listening on 0.0.0.0:50020")
+                diagnostics.info(TAG, "EAAS HTTP native server listening on 0.0.0.0:$httpPort")
 
                 while (httpServerFd != null) {
                     try {
@@ -257,7 +257,7 @@ class NetworkServerService : Service() {
                 }
                 diagnostics.httpServerPort = 0
                 diagnostics.httpServerBindError = httpBindError
-                diagnostics.error(TAG, "Failed to start native EAAS HTTP server on 50020", e)
+                diagnostics.error(TAG, "Failed to start native EAAS HTTP server on $httpPort", e)
                 diagnoseTcpBindFailure()
             }
         }
