@@ -175,7 +175,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 NetworkServerService.ServerState.STARTING -> {
                     tvServerStatus.text = getString(R.string.server_status_starting)
-                    tvServerStatus.setTextColor(getColor(R.color.amber_700))
+                    tvServerStatus.setTextColor(getColor(R.color.amber_500))
                     btnToggleServer.text = getString(R.string.server_button_starting)
                     btnToggleServer.isEnabled = false
                 }
