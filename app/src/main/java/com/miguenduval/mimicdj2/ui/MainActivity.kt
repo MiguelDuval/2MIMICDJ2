@@ -42,7 +42,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnClearLogs: Button
 
     // Services
-    private val networkDiagnostics = NetworkDiagnostics(this)
+    private lateinit var networkDiagnostics: NetworkDiagnostics
     private var serverService: NetworkServerService? = null
     private var isBound = false
 
@@ -66,6 +66,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        networkDiagnostics = NetworkDiagnostics(applicationContext)
         initViews()
         setupClickListeners()
         startNetworkMonitoring()
