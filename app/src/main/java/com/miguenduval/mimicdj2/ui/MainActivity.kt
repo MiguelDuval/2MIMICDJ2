@@ -199,7 +199,7 @@ class MainActivity : AppCompatActivity() {
         runOnUiThread {
             val port = serverService?.getBoundPort() ?: 0
             val iface = serverService?.getBoundInterface() ?: "none"
-            tvServicesInfo.text = "TCP: ${if (port > 0) "$iface:$port" else "not bound"}\nUDP: ${if (port > 0) "$iface:${port-1}" else "not bound"}"
+            tvServicesInfo.text = "TCP: ${if (port > 0) "$iface:$port" else "not bound"}\nEAAS UDP discovery: ${if (port > 0) "0.0.0.0:11224" else "not bound"}"
 
             tvDiscoveryInfo.text = "Discovery: ${if (port > 0) "ON" else "OFF"}\nRX: ${diag.discoveryRxCount.get()} | TX: ${diag.discoveryTxCount.get()}\nLast RX: ${if (diag.lastDiscoveryRx > 0) formatTime(diag.lastDiscoveryRx) else "never"}\nLast TX: ${if (diag.lastDiscoveryTx > 0) formatTime(diag.lastDiscoveryTx) else "never"}"
 
