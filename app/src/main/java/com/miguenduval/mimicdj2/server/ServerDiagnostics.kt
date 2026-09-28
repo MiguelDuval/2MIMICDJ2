@@ -28,6 +28,7 @@ class ServerDiagnostics {
     val discoveryRxCount = AtomicLong(0)
     val discoveryTxCount = AtomicLong(0)
     val connectionsOpened = AtomicLong(0)
+    val rawTcpAccepts = AtomicLong(0)
     val trustMessages = AtomicLong(0)
     val rpcCount = AtomicLong(0)
     val fileRequests = AtomicLong(0)
@@ -107,6 +108,7 @@ class ServerDiagnostics {
 
         sb.append("--- Sessions ---\n")
         sb.append("Connections: ${connectionsOpened.get()}\n")
+        sb.append("Raw TCP accepts: ${rawTcpAccepts.get()}\n")
         sb.append("Trust Msgs: ${trustMessages.get()}\n")
         sb.append("RPC Calls: ${rpcCount.get()}\n")
         sb.append("RPC Methods: ${observedRpcMethods.joinToString(", ") { if (it.isEmpty()) "none" else it }}\n")
