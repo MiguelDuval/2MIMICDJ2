@@ -81,7 +81,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // EAAS gRPC server
-    implementation("io.grpc:grpc-netty-shaded:1.65.1")
+    implementation("io.grpc:grpc-okhttp:1.65.1")
     implementation("io.grpc:grpc-protobuf:1.65.1")
     implementation("com.google.protobuf:protobuf-java:3.25.3")
     implementation("io.grpc:grpc-stub:1.65.1")
