@@ -5,6 +5,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
+import android.system.Os
+import android.system.OsConstants
 import android.content.Intent
 import android.os.Binder
 import android.os.Build
@@ -27,6 +29,9 @@ import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import java.io.FileDescriptor
+import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.util.concurrent.Executors
@@ -35,7 +40,7 @@ class NetworkServerService : Service() {
     private val diagnostics = ServerDiagnostics()
     private val scope = CoroutineScope(Dispatchers.IO + Job())
     private var grpcServer: Server? = null
-    private var httpListener: java.net.ServerSocket? = null
+    private var httpServerFd: FileDescriptor? = null
     @Volatile private var httpBoundPort = 0
     @Volatile private var httpBindError: String? = null
     private var udpListener: java.net.DatagramSocket? = null
@@ -126,49 +131,57 @@ class NetworkServerService : Service() {
     private fun startHttpServer() {
         scope.launch {
             try {
-                val host = resolveLocalIPv4For(null)
-                val ipv4Address = if (host == "0.0.0.0") {
-                    InetSocketAddress(50020)
-                } else {
-                    InetSocketAddress(java.net.InetAddress.getByName(host), 50020)
+                // The first Mimic DJ established that 50020 can reject the Java
+                // ServerSocket path with EPERM on Android. Use the native Android
+                // socket API directly as the primary EAAS HTTP listener.
+                val fd = Os.socket(
+                    OsConstants.AF_INET,
+                    OsConstants.SOCK_STREAM,
+                    OsConstants.IPPROTO_TCP
+                )
+
+                try {
+                    Os.setsockoptInt(
+                        fd,
+                        OsConstants.SOL_SOCKET,
+                        OsConstants.SO_REUSEADDR,
+                        1
+                    )
+                    // Do not bind this descriptor to a ConnectivityManager Network.
+                    // The old Mimic branch removed that step because it could break
+                    // ingress on local/hotspot interfaces.
+                    Os.bind(fd, InetAddress.getByName("0.0.0.0"), 50020)
+                    Os.listen(fd, 64)
+                } catch (t: Throwable) {
+                    runCatching { Os.close(fd) }
+                    throw IllegalStateException(
+                        "Native HTTP 50020 bind failed: " +
+                            t.javaClass.simpleName + ": " + (t.message ?: "no message"),
+                        t
+                    )
                 }
 
-                val listener = runCatching {
-                    java.net.ServerSocket().apply { bind(ipv4Address, 50) }
-                }.getOrNull() ?: run {
-                    diagnostics.warn(TAG, "IPv4 bind on 50020 failed; trying IPv6 dual-stack")
-                    runCatching {
-                        java.net.ServerSocket().apply {
-                            bind(InetSocketAddress(java.net.InetAddress.getByName("::"), 50020), 50)
-                        }
-                    }.getOrElse { ipv6Error ->
-                        val message = "IPv4/IPv6 bind failed: ${ipv6Error.javaClass.simpleName}: ${ipv6Error.message}"
-                        httpBindError = message
-                        diagnoseTcpBindFailure()
-                        throw java.io.IOException(message, ipv6Error)
-                    }
-                }
-
-                httpListener = listener
-                httpBoundPort = listener.localPort
+                httpServerFd = fd
+                httpBoundPort = 50020
                 httpBindError = null
-                diagnostics.info(TAG, "EAAS HTTP server listening on ${listener.localAddress.hostAddress}:50020")
+                diagnostics.info(TAG, "EAAS HTTP native server listening on 0.0.0.0:50020")
 
-                while (!listener.isClosed) {
+                while (httpServerFd != null) {
                     try {
-                        val socket = listener.accept()
-                        executor.execute { handleHttpClient(socket) }
-                    } catch (e: java.net.SocketException) {
-                        if (!listener.isClosed) diagnostics.error(TAG, "HTTP accept error", e)
-                    } catch (e: Exception) {
-                        if (!listener.isClosed) diagnostics.error(TAG, "HTTP accept error", e)
+                        val clientFd = Os.accept(fd, null)
+                        executor.execute { handleHttpClient(clientFd) }
+                    } catch (t: Throwable) {
+                        if (httpServerFd != null) {
+                            diagnostics.error(TAG, "HTTP native accept error", t)
+                        }
                     }
                 }
             } catch (e: Exception) {
                 if (httpBindError == null) {
-                    httpBindError = "${e.javaClass.simpleName}: ${e.message}"
+                    httpBindError = e.javaClass.simpleName + ": " + (e.message ?: "no message")
                 }
-                diagnostics.error(TAG, "Failed to start EAAS HTTP server on 50020", e)
+                diagnostics.error(TAG, "Failed to start native EAAS HTTP server on 50020", e)
+                diagnoseTcpBindFailure()
             }
         }
     }
@@ -187,35 +200,42 @@ class NetworkServerService : Service() {
         }
     }
 
-    private fun handleHttpClient(socket: java.net.Socket) {
-        socket.use { s ->
-            try {
-                s.soTimeout = 5000
-                val input = s.getInputStream()
-                val output = s.getOutputStream()
-                val request = readHttpRequest(input)
-                if (request == null) return
+    private fun handleHttpClient(fd: FileDescriptor) {
+        var input: java.io.BufferedReader? = null
+        var output: FileOutputStream? = null
+        try {
+            val inputFd = Os.dup(fd)
+            val outputFd = Os.dup(fd)
+            input = java.io.BufferedReader(
+                java.io.InputStreamReader(FileInputStream(inputFd), Charsets.ISO_8859_1)
+            )
+            output = FileOutputStream(outputFd)
 
-                diagnostics.fileRequests.incrementAndGet()
-                diagnostics.lastClientContact = System.currentTimeMillis()
-                diagnostics.lastClientIp = (s.remoteSocketAddress as? InetSocketAddress)?.address?.hostAddress
-                diagnostics.info(TAG, "HTTP ${request.method} ${request.path} from ${diagnostics.lastClientIp ?: "unknown"}")
+            val request = readHttpRequest(input)
+            if (request == null) return
 
-                val status = if (request.method == "GET" && request.path == "/ping") 200 else 404
-                val body = if (status == 200) ByteArray(0) else "Not Found".toByteArray(Charsets.UTF_8)
-                val reason = if (status == 200) "OK" else "Not Found"
-                val headers = "HTTP/1.1 $status $reason\\r\\n" +
-                        "Content-Length: ${body.size}\\r\\n" +
-                        "Connection: close\\r\\n\\r\\n"
-                output.write(headers.toByteArray(Charsets.US_ASCII))
-                output.write(body)
-                output.flush()
-                diagnostics.bytesServed.addAndGet(body.size.toLong())
-                if (status == 404) diagnostics.errors404.incrementAndGet()
-            } catch (e: Exception) {
-                diagnostics.errors500.incrementAndGet()
-                diagnostics.error(TAG, "Error handling HTTP client", e)
-            }
+            diagnostics.fileRequests.incrementAndGet()
+            diagnostics.lastClientContact = System.currentTimeMillis()
+            diagnostics.info(TAG, "HTTP ${request.method} ${request.path} from native client")
+
+            val status = if (request.method == "GET" && request.path == "/ping") 200 else 404
+            val body = if (status == 200) ByteArray(0) else "Not Found".toByteArray(Charsets.UTF_8)
+            val reason = if (status == 200) "OK" else "Not Found"
+            val headers = "HTTP/1.1 " + status + " " + reason + "\\r\\n" +
+                    "Content-Length: " + body.size + "\\r\\n" +
+                    "Connection: close\\r\\n\\r\\n"
+            output.write(headers.toByteArray(Charsets.US_ASCII))
+            output.write(body)
+            output.flush()
+            diagnostics.bytesServed.addAndGet(body.size.toLong())
+            if (status == 404) diagnostics.errors404.incrementAndGet()
+        } catch (e: Throwable) {
+            diagnostics.errors500.incrementAndGet()
+            diagnostics.error(TAG, "Error handling native HTTP client", e)
+        } finally {
+            runCatching { output?.close() }
+            runCatching { input?.close() }
+            runCatching { Os.close(fd) }
         }
     }
 
@@ -344,7 +364,12 @@ class NetworkServerService : Service() {
         diagnostics.info(TAG, "Stopping server")
         try { grpcServer?.shutdownNow() } catch (e: Exception) { diagnostics.error(TAG, "Error shutting down gRPC", e) }
         grpcServer = null
-        try { httpListener?.close(); httpListener = null } catch (e: Exception) { diagnostics.error(TAG, "Error closing HTTP", e) }
+        try {
+            httpServerFd?.let { Os.close(it) }
+            httpServerFd = null
+        } catch (e: Exception) {
+            diagnostics.error(TAG, "Error closing native HTTP", e)
+        }
         try { udpListener?.close(); udpListener = null } catch (e: Exception) { diagnostics.error(TAG, "Error closing UDP", e) }
         try {
             multicastLock?.let { if (it.isHeld) it.release() }
@@ -383,7 +408,7 @@ class NetworkServerService : Service() {
     override fun onDestroy() {
         diagnostics.info(TAG, "Service destroyed")
         try { grpcServer?.shutdownNow() } catch (_: Exception) {}
-        try { httpListener?.close() } catch (_: Exception) {}
+        try { httpServerFd?.let { Os.close(it) } } catch (_: Exception) {}
         try { udpListener?.close() } catch (_: Exception) {}
         try { multicastLock?.let { if (it.isHeld) it.release() } } catch (_: Exception) {}
         grpcServer = null
