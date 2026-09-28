@@ -174,15 +174,6 @@ jobs:
             echo "No distributable artifact exists yet."
           fi
 
-      - name: Upload build artifacts
-        if: false
-        if: hashFiles('ci-artifacts/**') != ''
-        uses: actions/upload-artifact@v7
-        with:
-          name: build-${{ github.sha }}
-          path: ci-artifacts/**
-          if-no-files-found: warn
-          retention-days: 14
       - name: Publish raw debug APK
         if: github.event_name == 'push' && github.ref != 'refs/heads/main'
         env:
