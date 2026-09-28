@@ -10,6 +10,7 @@ import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.Observer
 import com.google.android.material.snackbar.Snackbar
@@ -134,7 +135,7 @@ class MainActivity : AppCompatActivity() {
             action = NetworkServerService.ACTION_START_SERVER
             putExtra(NetworkServerService.EXTRA_PORT, 50010)
         }
-        startForegroundService(intent)
+        ContextCompat.startForegroundService(this, intent)
         updateServerUI(true)
     }
 
