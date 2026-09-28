@@ -190,14 +190,12 @@ class NetworkServerService : Service() {
         diagnostics.info(TAG, "Port 50020 diagnostic matrix:\n${PortDiagnostics.snapshot()}")
     }
     private fun handleHttpClient(fd: FileDescriptor) {
-        var input: java.io.BufferedReader? = null
+        var input: FileInputStream? = null
         var output: FileOutputStream? = null
         try {
             val inputFd = Os.dup(fd)
             val outputFd = Os.dup(fd)
-            input = java.io.BufferedReader(
-                java.io.InputStreamReader(FileInputStream(inputFd), Charsets.ISO_8859_1)
-            )
+            input = FileInputStream(inputFd)
             output = FileOutputStream(outputFd)
 
             val request = readHttpRequest(input)
