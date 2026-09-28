@@ -449,8 +449,7 @@ class NetworkServerService : Service() {
                             hostname = "Mimic DJ",
                             grpcHost = responseHost,
                             grpcPort = boundPort,
-                            softwareVersion = "1.0.0",
-                            extra = "_"
+                            softwareVersion = "1.0.0"
                         )
 
                         sender?.let {
