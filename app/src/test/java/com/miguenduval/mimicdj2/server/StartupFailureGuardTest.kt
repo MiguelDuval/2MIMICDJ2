@@ -11,7 +11,7 @@ class StartupFailureGuardTest {
     fun startup_guard_contains_errors_instead_of_leaking_them() {
         var seen: Throwable? = null
 
-        val result = StartupFailureGuard.run(
+        val result = StartupFailureGuard.run<Any>(
             onFailure = { seen = it }
         ) {
             throw AssertionError("synthetic startup linkage failure")
