@@ -125,7 +125,7 @@ class ServerDiagnostics {
         sb.append("Last Client IP: ${lastClientIp ?: "none"}\n")
         sb.append("Last Contact: ${if (lastClientContact > 0) fmt.format(Date(lastClientContact)) else "never"}\n\n")
         sb.append("Server gRPC port: ${if (serverGrpcPort > 0) serverGrpcPort else "not bound"}\n")
-        sb.append("Server HTTP 50020: ${if (httpServerPort == 50020) "BOUND" else "NOT BOUND"}\n")
+        sb.append("Server HTTP port: ${if (httpServerPort > 0) "BOUND $httpServerPort" else "NOT BOUND"}\n")
         sb.append("Server HTTP bind error: ${httpServerBindError ?: "none"}\n\n")
         sb.append("Prime GO TCP/50010: ${primeGoPort50010 ?: "not probed"}\n")
         sb.append("Prime GO TCP/50020: ${primeGoPort50020 ?: "not probed"}\n")
