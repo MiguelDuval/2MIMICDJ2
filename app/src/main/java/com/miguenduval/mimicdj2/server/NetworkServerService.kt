@@ -258,7 +258,40 @@ class NetworkServerService : Service() {
 
     private fun diagnoseTcpBindFailure() {
         diagnostics.info(TAG, "Port 50020 diagnostic matrix:\n${PortDiagnostics.snapshot()}")
+
+        // A failed bind does not tell us whether the port is reserved-but-unused
+        // or whether another system/vendor service already owns it. A connect
+        // probe distinguishes those cases without requiring root.
+        val host = NetworkAddress.currentLanIpv4(applicationContext)
+        if (!host.isNullOrBlank()) {
+            diagnostics.info(
+                TAG,
+                "TCP connect probes: 50020 LAN=${probeTcpEndpoint(host, 50020)} " +
+                    "loopback=${probeTcpEndpoint("127.0.0.1", 50020)}; " +
+                    "50021 LAN=${probeTcpEndpoint(host, 50021)}; " +
+                    "50022 LAN=${probeTcpEndpoint(host, 50022)}"
+            )
+        } else {
+            diagnostics.warn(TAG, "TCP connect probes skipped: no LAN IPv4")
+        }
     }
+
+    private fun probeTcpEndpoint(host: String, port: Int): String =
+        runCatching {
+            java.net.Socket().use { socket ->
+                socket.connect(InetSocketAddress(host, port), 700)
+            }
+            "CONNECTED"
+        }.fold(
+            onSuccess = { it },
+            onFailure = { error ->
+                when (error) {
+                    is java.net.ConnectException -> "REFUSED"
+                    is java.net.SocketTimeoutException -> "TIMEOUT"
+                    else -> error.javaClass.simpleName
+                }
+            }
+        )
     private fun handleHttpClient(fd: FileDescriptor) {
         var input: FileInputStream? = null
         var output: FileOutputStream? = null
