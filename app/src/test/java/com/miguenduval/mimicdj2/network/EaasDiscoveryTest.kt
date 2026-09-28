@@ -50,7 +50,9 @@ class EaasDiscoveryTest {
         val hostnameLength = ByteBuffer.wrap(response, offset, 4)
             .order(ByteOrder.BIG_ENDIAN).int
         assertEquals(hostnameBytes.size, hostnameLength)
-        offset += 4 + hostnameLength
+        offset += 4
+        assertArrayEquals(hostnameBytes, response.copyOfRange(offset, offset + hostnameLength))
+        offset += hostnameLength
 
         val urlBytes = "grpc://192.168.1.20:50010".toByteArray(Charsets.UTF_8)
         val urlLength = ByteBuffer.wrap(response, offset, 4)
@@ -68,14 +70,7 @@ class EaasDiscoveryTest {
         assertArrayEquals(versionBytes, response.copyOfRange(offset, offset + versionLength))
         offset += versionLength
 
-        assertEquals(0x01, response[offset].toInt())
-        offset += 1
-
-        val extraBytes = "_".toByteArray(Charsets.UTF_16BE)
-        val extraLength = ByteBuffer.wrap(response, offset, 4)
-            .order(ByteOrder.BIG_ENDIAN).int
-        assertEquals(extraBytes.size, extraLength)
-        offset += 4
-        assertArrayEquals(extraBytes, response.copyOfRange(offset, offset + extraLength))
+        // Modern EAAS discovery responses end after the version field.
+        assertEquals(response.size, offset)
     }
 }
