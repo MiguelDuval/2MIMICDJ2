@@ -188,16 +188,7 @@ class NetworkServerService : Service() {
             updateNotification("EAAS gRPC + HTTP + discovery on $lanIp:$port")
         } catch (e: Exception) {
             diagnostics.error(TAG, "Failed to start EAAS gRPC server", e)
-            try { localServer?.shutdownNow() } catch (_: Exception) {}
-            synchronized(lifecycleLock) {
-                try { grpcServer?.shutdownNow() } catch (_: Exception) {}
-                grpcServer = null
-                boundPort = 0
-                boundInterface = null
-                serverState = ServerState.STOPPED
-            }
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
+            handleStartupFailure(e)
         }
     }
     private fun startHttpServer() {
@@ -419,6 +410,56 @@ class NetworkServerService : Service() {
             ?.firstOrNull { !it.isLoopbackAddress && !it.isLinkLocalAddress }
             ?.hostAddress
             ?: "0.0.0.0"
+    }
+
+    private fun handleStartupFailure(throwable: Throwable) {
+        diagnostics.error(
+            TAG,
+            "EAAS startup failure (" + throwable.javaClass.name + "): " + (throwable.message ?: "no message"),
+            throwable
+        )
+
+        try { grpcServer?.shutdownNow() } catch (t: Throwable) {
+            diagnostics.error(TAG, "Error shutting down gRPC after startup failure", t)
+        }
+        grpcServer = null
+
+        try {
+            httpServerFd?.let { Os.close(it) }
+        } catch (t: Throwable) {
+            diagnostics.error(TAG, "Error closing HTTP after startup failure", t)
+        }
+        httpServerFd = null
+
+        try { udpListener?.close() } catch (t: Throwable) {
+            diagnostics.error(TAG, "Error closing discovery UDP after startup failure", t)
+        }
+        udpListener = null
+
+        try {
+            multicastLock?.let { if (it.isHeld) it.release() }
+        } catch (t: Throwable) {
+            diagnostics.error(TAG, "Error releasing multicast lock after startup failure", t)
+        }
+        multicastLock = null
+
+        boundPort = 0
+        boundInterface = null
+        httpBoundPort = 0
+        httpBindError = null
+        NetworkAddress.clearProcessBinding(applicationContext)
+
+        synchronized(lifecycleLock) {
+            serverState = ServerState.STOPPED
+        }
+
+        // Keep the service alive so the Activity can still retrieve the
+        // original startup failure from diagnostics.
+        try {
+            updateNotification("Server start failed — copy diagnostics")
+        } catch (t: Throwable) {
+            diagnostics.error(TAG, "Failed to update failure notification", t)
+        }
     }
 
     private fun stopServer() {
