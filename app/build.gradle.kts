@@ -83,6 +83,7 @@ dependencies {
     // EAAS gRPC server
     implementation("io.grpc:grpc-netty-shaded:1.65.1")
     implementation("io.grpc:grpc-protobuf:1.65.1")
+    implementation("com.google.protobuf:protobuf-java:3.25.3")
     implementation("io.grpc:grpc-stub:1.65.1")
     implementation("javax.annotation:javax.annotation-api:1.3.2")
 
@@ -109,7 +110,7 @@ protobuf {
     generateProtoTasks {
         all().forEach { task ->
             task.builtins {
-                java { }
+                create("java") { }
             }
             task.plugins {
                 create("grpc")
