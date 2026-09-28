@@ -412,7 +412,7 @@ class NetworkServerService : Service() {
                             token = eaasToken,
                             hostname = "Mimic DJ",
                             grpcHost = responseHost,
-                            grpcPort = 50010,
+                            grpcPort = boundPort.coerceAtLeast(port),
                             softwareVersion = BuildConfig.VERSION_NAME,
                             extra = "_"
                         )
