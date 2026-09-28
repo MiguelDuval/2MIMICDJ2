@@ -57,6 +57,7 @@ class ServerDiagnostics {
     @Volatile var primeGoPort50010: String? = null
     @Volatile var primeGoPort50020: String? = null
     @Volatile var primeGoPort50021: String? = null
+    @Volatile var primeGo50010Fingerprint: String? = null
     @Volatile var primeGoHighPortScan: String? = null
     @Volatile var primeGoHighPortScanProgress: String? = null
 
@@ -130,6 +131,7 @@ class ServerDiagnostics {
         sb.append("Prime GO TCP/50010: ${primeGoPort50010 ?: "not probed"}\n")
         sb.append("Prime GO TCP/50020: ${primeGoPort50020 ?: "not probed"}\n")
         sb.append("Prime GO TCP/50021: ${primeGoPort50021 ?: "not probed"}\n")
+        sb.append("Prime GO 50010 fingerprint: ${primeGo50010Fingerprint ?: "not probed"}\n")
         sb.append("Prime GO high-port scan: ${primeGoHighPortScan ?: "not started"}\n")
         sb.append("Prime GO high-port scan progress: ${primeGoHighPortScanProgress ?: "not started"}\n\n")
 
