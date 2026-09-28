@@ -1,5 +1,6 @@
 package com.miguenduval.mimicdj2.server
 
+import android.annotation.SuppressLint
 import android.os.Build
 import android.system.Os
 import android.system.OsConstants
@@ -80,6 +81,7 @@ object PortDiagnostics {
         t.javaClass.simpleName + ": " + (t.message ?: "no message")
     }
 
+    @SuppressLint("NewApi")
     private fun probeNative(host: String, port: Int, reusePort: Boolean): String {
         val fd = try {
             Os.socket(OsConstants.AF_INET, OsConstants.SOCK_STREAM, OsConstants.IPPROTO_TCP)
