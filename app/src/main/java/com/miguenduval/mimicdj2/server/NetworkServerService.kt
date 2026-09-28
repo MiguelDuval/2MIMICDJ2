@@ -108,6 +108,7 @@ class NetworkServerService : Service() {
             boundPort = port
             boundInterface = bindHost
             diagnostics.info(TAG, "EAAS gRPC server listening on $bindHost:$port")
+            startHttpServer()
             startEaasDiscoveryListener()
             updateNotification("EAAS gRPC + discovery running on $bindHost:$port")
         } catch (e: Exception) {
@@ -118,6 +119,83 @@ class NetworkServerService : Service() {
             boundInterface = null
             stopSelf()
         }
+    }
+    private fun startHttpServer() {
+        scope.launch {
+            try {
+                val listener = java.net.ServerSocket()
+                listener.reuseAddress = true
+                listener.bind(InetSocketAddress(50020))
+                httpListener = listener
+                diagnostics.info(TAG, "EAAS HTTP server listening on 0.0.0.0:50020")
+
+                while (!listener.isClosed) {
+                    try {
+                        val socket = listener.accept()
+                        executor.execute { handleHttpClient(socket) }
+                    } catch (e: java.net.SocketException) {
+                        if (!listener.isClosed) diagnostics.error(TAG, "HTTP accept error", e)
+                    } catch (e: Exception) {
+                        if (!listener.isClosed) diagnostics.error(TAG, "HTTP accept error", e)
+                    }
+                }
+            } catch (e: Exception) {
+                diagnostics.error(TAG, "Failed to start EAAS HTTP server on 50020", e)
+            }
+        }
+    }
+
+    private fun handleHttpClient(socket: java.net.Socket) {
+        socket.use { s ->
+            try {
+                s.soTimeout = 5000
+                val input = s.getInputStream()
+                val output = s.getOutputStream()
+                val request = readHttpRequest(input)
+                if (request == null) return
+
+                diagnostics.fileRequests.incrementAndGet()
+                diagnostics.lastClientContact = System.currentTimeMillis()
+                diagnostics.lastClientIp = (s.remoteSocketAddress as? InetSocketAddress)?.address?.hostAddress
+                diagnostics.info(TAG, "HTTP ${request.method} ${request.path} from ${diagnostics.lastClientIp ?: "unknown"}")
+
+                val status = if (request.method == "GET" && request.path == "/ping") 200 else 404
+                val body = if (status == 200) ByteArray(0) else "Not Found".toByteArray(Charsets.UTF_8)
+                val reason = if (status == 200) "OK" else "Not Found"
+                val headers = "HTTP/1.1 $status $reason\\r\\n" +
+                        "Content-Length: ${body.size}\\r\\n" +
+                        "Connection: close\\r\\n\\r\\n"
+                output.write(headers.toByteArray(Charsets.US_ASCII))
+                output.write(body)
+                output.flush()
+                diagnostics.bytesServed.addAndGet(body.size.toLong())
+                if (status == 404) diagnostics.errors404.incrementAndGet()
+            } catch (e: Exception) {
+                diagnostics.errors500.incrementAndGet()
+                diagnostics.error(TAG, "Error handling HTTP client", e)
+            }
+        }
+    }
+
+    private data class HttpRequest(val method: String, val path: String)
+
+    private fun readHttpRequest(input: java.io.InputStream): HttpRequest? {
+        val bytes = java.io.ByteArrayOutputStream()
+        val one = ByteArray(1)
+        var state = 0
+        while (bytes.size() < 16384) {
+            val n = input.read(one)
+            if (n < 0) break
+            bytes.write(one[0].toInt())
+            when (state) {
+                0 -> if (bytes.toByteArray().takeLast(4).toByteArray().contentEquals(byteArrayOf(13, 10, 13, 10))) break
+            }
+        }
+        if (bytes.size() == 0) return null
+        val line = bytes.toString(Charsets.US_ASCII.name()).lineSequence().firstOrNull() ?: return null
+        val parts = line.trim().split(" ")
+        if (parts.size < 2) return null
+        return HttpRequest(parts[0], parts[1])
     }
     private fun startEaasDiscoveryListener() {
         scope.launch {
@@ -224,6 +302,7 @@ class NetworkServerService : Service() {
         diagnostics.info(TAG, "Stopping server")
         try { grpcServer?.shutdownNow() } catch (e: Exception) { diagnostics.error(TAG, "Error shutting down gRPC", e) }
         grpcServer = null
+        try { httpListener?.close(); httpListener = null } catch (e: Exception) { diagnostics.error(TAG, "Error closing HTTP", e) }
         try { udpListener?.close(); udpListener = null } catch (e: Exception) { diagnostics.error(TAG, "Error closing UDP", e) }
         try {
             multicastLock?.let { if (it.isHeld) it.release() }
@@ -260,6 +339,7 @@ class NetworkServerService : Service() {
     override fun onDestroy() {
         diagnostics.info(TAG, "Service destroyed")
         try { grpcServer?.shutdownNow() } catch (_: Exception) {}
+        try { httpListener?.close() } catch (_: Exception) {}
         try { udpListener?.close() } catch (_: Exception) {}
         try { multicastLock?.let { if (it.isHeld) it.release() } } catch (_: Exception) {}
         grpcServer = null
