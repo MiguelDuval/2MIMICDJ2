@@ -46,17 +46,30 @@ class GrpcServerSocketFactory(
         override fun accept(): Socket {
             val socket = super.accept()
             val remote = socket.remoteSocketAddress
+            val remoteIp = (remote as? InetSocketAddress)?.address?.hostAddress
+            val localAddress = remoteIp?.let { isLocalAddress(it) } == true
             diagnostics.rawTcpAccepts.incrementAndGet()
+            if (!localAddress) {
+                diagnostics.externalRawTcpAccepts.incrementAndGet()
+            }
             diagnostics.lastClientContact = System.currentTimeMillis()
-            diagnostics.lastClientIp =
-                (remote as? InetSocketAddress)?.address?.hostAddress ?: remote?.toString()
+            diagnostics.lastClientIp = remoteIp ?: remote?.toString()
+            val scope = if (localAddress) "local/self-test" else "EXTERNAL/remote"
             diagnostics.info(
                 "EAAS-TCP",
-                "Raw TCP accept from " +
+                "Raw TCP accept ($scope) from " +
                     (diagnostics.lastClientIp ?: "unknown") + ":" +
                     ((remote as? InetSocketAddress)?.port ?: "?")
             )
             return socket
         }
     }
+
+    private fun isLocalAddress(address: String): Boolean =
+        runCatching {
+            java.net.NetworkInterface.getNetworkInterfaces()?.toList()
+                ?.flatMap { it.inetAddresses.toList() }
+                ?.any { it.hostAddress == address }
+                ?: false
+        }.getOrDefault(false)
 }
