@@ -116,10 +116,11 @@ class NetworkServerService : Service() {
     }
 
     private fun doStartServer(port: Int, iface: String?) {
+        var localServer: Server? = null
         try {
             val bindHost = if (iface.isNullOrBlank()) "0.0.0.0" else iface
 
-            grpcServer = NettyServerBuilder
+            localServer = NettyServerBuilder
                 .forPort(port)
                 .executor(executor)
                 .addService(NetworkTrustGrpcService(diagnostics))
@@ -128,20 +129,32 @@ class NetworkServerService : Service() {
                 .build()
                 .start()
 
-            boundPort = port
-            boundInterface = bindHost
-            synchronized(lifecycleLock) { serverState = ServerState.RUNNING }
+            synchronized(lifecycleLock) {
+                if (serverState != ServerState.STARTING) {
+                    try { localServer.shutdownNow() } catch (_: Exception) {}
+                    diagnostics.warn(TAG, "Discarding late server start; state=$serverState")
+                    return
+                }
+                grpcServer = localServer
+                boundPort = port
+                boundInterface = bindHost
+                serverState = ServerState.RUNNING
+            }
+
             diagnostics.info(TAG, "EAAS gRPC server listening on $bindHost:$port")
             startHttpServer()
             startEaasDiscoveryListener()
-            updateNotification("EAAS gRPC + HTTP + discovery starting on $bindHost:$port")
+            updateNotification("EAAS gRPC + HTTP + discovery on $bindHost:$port")
         } catch (e: Exception) {
             diagnostics.error(TAG, "Failed to start EAAS gRPC server", e)
-            try { grpcServer?.shutdownNow() } catch (_: Exception) {}
-            grpcServer = null
-            boundPort = 0
-            boundInterface = null
-            synchronized(lifecycleLock) { serverState = ServerState.STOPPED }
+            try { localServer?.shutdownNow() } catch (_: Exception) {}
+            synchronized(lifecycleLock) {
+                try { grpcServer?.shutdownNow() } catch (_: Exception) {}
+                grpcServer = null
+                boundPort = 0
+                boundInterface = null
+                serverState = ServerState.STOPPED
+            }
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
