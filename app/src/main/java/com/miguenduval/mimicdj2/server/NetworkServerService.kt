@@ -36,6 +36,8 @@ class NetworkServerService : Service() {
     private val scope = CoroutineScope(Dispatchers.IO + Job())
     private var grpcServer: Server? = null
     private var httpListener: java.net.ServerSocket? = null
+    @Volatile private var httpBoundPort = 0
+    @Volatile private var httpBindError: String? = null
     private var udpListener: java.net.DatagramSocket? = null
     private var multicastLock: WifiManager.MulticastLock? = null
     private lateinit var eaasToken: ByteArray
@@ -125,16 +127,32 @@ class NetworkServerService : Service() {
         scope.launch {
             try {
                 val host = resolveLocalIPv4For(null)
-                val bindAddress = if (host == "0.0.0.0") {
+                val ipv4Address = if (host == "0.0.0.0") {
                     InetSocketAddress(50020)
                 } else {
                     InetSocketAddress(java.net.InetAddress.getByName(host), 50020)
                 }
 
-                val listener = java.net.ServerSocket()
-                listener.bind(bindAddress, 50)
+                val listener = runCatching {
+                    java.net.ServerSocket().apply { bind(ipv4Address, 50) }
+                }.getOrNull() ?: run {
+                    diagnostics.warn(TAG, "IPv4 bind on 50020 failed; trying IPv6 dual-stack")
+                    runCatching {
+                        java.net.ServerSocket().apply {
+                            bind(InetSocketAddress(java.net.InetAddress.getByName("::"), 50020), 50)
+                        }
+                    }.getOrElse { ipv6Error ->
+                        val message = "IPv4/IPv6 bind failed: ${ipv6Error.javaClass.simpleName}: ${ipv6Error.message}"
+                        httpBindError = message
+                        diagnoseTcpBindFailure()
+                        throw java.io.IOException(message, ipv6Error)
+                    }
+                }
+
                 httpListener = listener
-                diagnostics.info(TAG, "EAAS HTTP server listening on ${listener.inetAddress.hostAddress}:50020")
+                httpBoundPort = listener.localPort
+                httpBindError = null
+                diagnostics.info(TAG, "EAAS HTTP server listening on ${listener.localAddress.hostAddress}:50020")
 
                 while (!listener.isClosed) {
                     try {
@@ -147,8 +165,10 @@ class NetworkServerService : Service() {
                     }
                 }
             } catch (e: Exception) {
+                if (httpBindError == null) {
+                    httpBindError = "${e.javaClass.simpleName}: ${e.message}"
+                }
                 diagnostics.error(TAG, "Failed to start EAAS HTTP server on 50020", e)
-                diagnoseTcpBindFailure()
             }
         }
     }
@@ -332,6 +352,8 @@ class NetworkServerService : Service() {
         } catch (e: Exception) { diagnostics.warn(TAG, "Error releasing Wi-Fi multicast lock: $e") }
         boundPort = 0
         boundInterface = null
+        httpBoundPort = 0
+        httpBindError = null
         updateNotification("Server stopped")
         stopForeground(true)
         stopSelf()
@@ -369,6 +391,8 @@ class NetworkServerService : Service() {
         multicastLock = null
         boundPort = 0
         boundInterface = null
+        httpBoundPort = 0
+        httpBindError = null
         diagnostics.shutdown()
         executor.shutdown()
         scope.cancel()
@@ -380,6 +404,8 @@ class NetworkServerService : Service() {
     fun getDiagnostics(): ServerDiagnostics = diagnostics
     fun getBoundPort(): Int = boundPort
     fun getBoundInterface(): String? = boundInterface
+    fun getHttpBoundPort(): Int = httpBoundPort
+    fun getHttpBindError(): String? = httpBindError
 }
 private class RpcDiagnosticsInterceptor(
     private val diagnostics: ServerDiagnostics
