@@ -185,6 +185,7 @@ class NetworkServerService : Service() {
                 grpcServer = localServer
                 boundPort = port
                 boundInterface = lanIp
+                diagnostics.serverGrpcPort = port
                 serverState = ServerState.RUNNING
             }
 
@@ -236,6 +237,8 @@ class NetworkServerService : Service() {
                 httpServerFd = fd
                 httpBoundPort = 50020
                 httpBindError = null
+                diagnostics.httpServerPort = 50020
+                diagnostics.httpServerBindError = null
                 diagnostics.info(TAG, "EAAS HTTP native server listening on 0.0.0.0:50020")
 
                 while (httpServerFd != null) {
@@ -252,6 +255,8 @@ class NetworkServerService : Service() {
                 if (httpBindError == null) {
                     httpBindError = e.javaClass.simpleName + ": " + (e.message ?: "no message")
                 }
+                diagnostics.httpServerPort = 0
+                diagnostics.httpServerBindError = httpBindError
                 diagnostics.error(TAG, "Failed to start native EAAS HTTP server on 50020", e)
                 diagnoseTcpBindFailure()
             }
@@ -412,7 +417,7 @@ class NetworkServerService : Service() {
                             primeGoHighPortScanStarted = true
                             scope.launch {
                                 kotlinx.coroutines.delay(5000L)
-                                if (diagnostics.rawTcpAccepts.get() > 0 ||
+                                if (diagnostics.externalRawTcpAccepts.get() > 0 ||
                                     diagnostics.connectionsOpened.get() > 0 ||
                                     diagnostics.rpcCount.get() > 0
                                 ) {
@@ -529,8 +534,11 @@ class NetworkServerService : Service() {
 
         boundPort = 0
         boundInterface = null
+        diagnostics.serverGrpcPort = 0
         httpBoundPort = 0
         httpBindError = null
+        diagnostics.httpServerPort = 0
+        diagnostics.httpServerBindError = null
         primeGoPortsProbed = false
         primeGoHighPortScanStarted = false
         NetworkAddress.clearProcessBinding(applicationContext)
