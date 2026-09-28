@@ -191,8 +191,8 @@ class NetworkServerService : Service() {
 
             diagnostics.info(TAG, "EAAS gRPC server listening on $lanIp:$port")
             scope.launch { probeLocalGrpcTcp(lanIp, port) }
-            // Diagnostic v5: standard EAAS gRPC port, while HTTP uses the
-            // known-bindable alternate port to isolate session establishment.
+            // Prime GO diagnostic mode: keep EAAS gRPC on 50010 while HTTP
+            // uses the known-bindable alternate port to isolate session establishment.
             val httpPort = if (port == 50010) 50110 else port + 10
             startHttpServer(httpPort)
             startEaasDiscoveryListener()
