@@ -187,19 +187,8 @@ class NetworkServerService : Service() {
     }
 
     private fun diagnoseTcpBindFailure() {
-        val candidates = intArrayOf(50019, 50020, 50021, 50030)
-        for (candidate in candidates) {
-            try {
-                java.net.ServerSocket().use { probe ->
-                    probe.bind(InetSocketAddress(candidate))
-                    diagnostics.info(TAG, "TCP bind probe $candidate: OK")
-                }
-            } catch (e: Exception) {
-                diagnostics.warn(TAG, "TCP bind probe $candidate: ${e.javaClass.simpleName}: ${e.message}")
-            }
-        }
+        diagnostics.info(TAG, "Port 50020 diagnostic matrix:\n${PortDiagnostics.snapshot()}")
     }
-
     private fun handleHttpClient(fd: FileDescriptor) {
         var input: java.io.BufferedReader? = null
         var output: FileOutputStream? = null
