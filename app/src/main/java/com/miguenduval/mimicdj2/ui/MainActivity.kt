@@ -11,16 +11,16 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.LiveData
 import androidx.lifecycle.Observer
+import androidx.lifecycle.lifecycleScope
 import com.google.android.material.snackbar.Snackbar
 import com.miguenduval.mimicdj2.network.NetworkDiagnostics
 import com.miguenduval.mimicdj2.R
 import com.miguenduval.mimicdj2.server.NetworkServerService
 import com.miguenduval.mimicdj2.server.ServerDiagnostics
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import timber.log.Timber
 
@@ -45,6 +45,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var networkDiagnostics: NetworkDiagnostics
     private var serverService: NetworkServerService? = null
     private var isBound = false
+    private var periodicUiJob: Job? = null
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, service: IBinder) {
@@ -52,14 +53,14 @@ class MainActivity : AppCompatActivity() {
             serverService = binder.getService()
             isBound = true
             Timber.tag(TAG).d("Service connected")
-            updateServerUI(binder.getService().getBoundPort() != 0)
+            updateServerUI(binder.getService().getServerState())
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
             serverService = null
             isBound = false
             Timber.tag(TAG).d("Service disconnected")
-            updateServerUI(false)
+            updateServerUI(NetworkServerService.ServerState.STOPPED)
         }
     }
 
@@ -76,6 +77,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        periodicUiJob?.cancel()
+        periodicUiJob = null
         stopNetworkMonitoring()
         unbindFromServerService()
     }
@@ -126,10 +129,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun toggleServer() {
-        if (serverService?.getBoundPort() != 0) {
-            stopServer()
-        } else {
-            startServer()
+        when (serverService?.getServerState() ?: NetworkServerService.ServerState.STOPPED) {
+            NetworkServerService.ServerState.RUNNING -> stopServer()
+            NetworkServerService.ServerState.STOPPED -> startServer()
+            NetworkServerService.ServerState.STARTING,
+            NetworkServerService.ServerState.STOPPING -> {
+                Timber.tag(TAG).d("Ignoring toggle during server transition")
+            }
         }
     }
 
@@ -138,7 +144,15 @@ class MainActivity : AppCompatActivity() {
             action = NetworkServerService.ACTION_START_SERVER
             putExtra(NetworkServerService.EXTRA_PORT, 50010)
         }
-        ContextCompat.startForegroundService(this, intent)
+        try {
+            ContextCompat.startForegroundService(this, intent)
+        } catch (e: Exception) {
+            Timber.tag(TAG).e(e, "Failed to start foreground server service")
+            Snackbar.make(findViewById(android.R.id.content), "Server start failed: " + e.message, Snackbar.LENGTH_LONG).show()
+            updateServerUI(NetworkServerService.ServerState.STOPPED)
+            return
+        }
+        updateServerUI(NetworkServerService.ServerState.STARTING)
         if (!isBound) bindToServerService()
     }
 
@@ -146,20 +160,37 @@ class MainActivity : AppCompatActivity() {
         val intent = Intent(this, NetworkServerService::class.java).apply {
             action = NetworkServerService.ACTION_STOP_SERVER
         }
-        serverService?.requestStop() ?: startService(intent)
-        updateServerUI(false)
+        serverService?.requestStop() ?: runCatching { startService(intent) }
+        updateServerUI(NetworkServerService.ServerState.STOPPING)
     }
 
-    private fun updateServerUI(running: Boolean) {
+    private fun updateServerUI(state: NetworkServerService.ServerState) {
         runOnUiThread {
-            if (running) {
-                tvServerStatus.text = getString(R.string.server_status_on)
-                tvServerStatus.setTextColor(getColor(R.color.green_500))
-                btnToggleServer.text = getString(R.string.stop_server)
-            } else {
-                tvServerStatus.text = getString(R.string.server_status_off)
-                tvServerStatus.setTextColor(getColor(R.color.red_500))
-                btnToggleServer.text = getString(R.string.start_server)
+            when (state) {
+                NetworkServerService.ServerState.RUNNING -> {
+                    tvServerStatus.text = getString(R.string.server_status_on)
+                    tvServerStatus.setTextColor(getColor(R.color.green_500))
+                    btnToggleServer.text = getString(R.string.server_button_on)
+                    btnToggleServer.isEnabled = true
+                }
+                NetworkServerService.ServerState.STARTING -> {
+                    tvServerStatus.text = getString(R.string.server_status_starting)
+                    tvServerStatus.setTextColor(getColor(R.color.amber_700))
+                    btnToggleServer.text = getString(R.string.server_button_starting)
+                    btnToggleServer.isEnabled = false
+                }
+                NetworkServerService.ServerState.STOPPING -> {
+                    tvServerStatus.text = getString(R.string.server_status_stopping)
+                    tvServerStatus.setTextColor(getColor(R.color.amber_700))
+                    btnToggleServer.text = getString(R.string.server_button_stopping)
+                    btnToggleServer.isEnabled = false
+                }
+                NetworkServerService.ServerState.STOPPED -> {
+                    tvServerStatus.text = getString(R.string.server_status_off)
+                    tvServerStatus.setTextColor(getColor(R.color.red_500))
+                    btnToggleServer.text = getString(R.string.server_button_off)
+                    btnToggleServer.isEnabled = true
+                }
             }
         }
     }
@@ -184,13 +215,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startPeriodicUIUpdate() {
-        CoroutineScope(Dispatchers.Main).launch {
-            while (true) {
-                if (serverService != null) {
+        periodicUiJob?.cancel()
+        periodicUiJob = lifecycleScope.launch {
+            while (isActive) {
+                val service = serverService
+                if (service != null) {
                     updateDiagnosticsUI()
-                    updateServerUI(serverService?.getBoundPort() != 0)
+                    updateServerUI(service.getServerState())
                 }
-                delay(2000)
+                delay(500)
             }
         }
     }
