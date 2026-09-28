@@ -53,6 +53,8 @@ class ServerDiagnostics {
     @Volatile var primeGoPort50010: String? = null
     @Volatile var primeGoPort50020: String? = null
     @Volatile var primeGoPort50021: String? = null
+    @Volatile var primeGoHighPortScan: String? = null
+    @Volatile var primeGoHighPortScanProgress: String? = null
 
     // Last payloads for inspection
     var lastDiscoveryRxPayload: ByteArray? = null
@@ -119,7 +121,9 @@ class ServerDiagnostics {
         sb.append("Last Contact: ${if (lastClientContact > 0) fmt.format(Date(lastClientContact)) else "never"}\n\n")
         sb.append("Prime GO TCP/50010: ${primeGoPort50010 ?: "not probed"}\n")
         sb.append("Prime GO TCP/50020: ${primeGoPort50020 ?: "not probed"}\n")
-        sb.append("Prime GO TCP/50021: ${primeGoPort50021 ?: "not probed"}\n\n")
+        sb.append("Prime GO TCP/50021: ${primeGoPort50021 ?: "not probed"}\n")
+        sb.append("Prime GO high-port scan: ${primeGoHighPortScan ?: "not started"}\n")
+        sb.append("Prime GO high-port scan progress: ${primeGoHighPortScanProgress ?: "not started"}\n\n")
 
         sb.append("--- File Server ---\n")
         sb.append("Requests: ${fileRequests.get()}\n")
