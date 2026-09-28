@@ -111,7 +111,7 @@ class NetworkServerService : Service() {
             diagnostics.info(TAG, "EAAS gRPC server listening on $bindHost:$port")
             startHttpServer()
             startEaasDiscoveryListener()
-            updateNotification("EAAS gRPC + discovery running on $bindHost:$port")
+            updateNotification("EAAS gRPC + HTTP + discovery starting on $bindHost:$port")
         } catch (e: Exception) {
             diagnostics.error(TAG, "Failed to start EAAS gRPC server", e)
             try { grpcServer?.shutdownNow() } catch (_: Exception) {}
@@ -124,11 +124,17 @@ class NetworkServerService : Service() {
     private fun startHttpServer() {
         scope.launch {
             try {
+                val host = resolveLocalIPv4For(null)
+                val bindAddress = if (host == "0.0.0.0") {
+                    InetSocketAddress(50020)
+                } else {
+                    InetSocketAddress(java.net.InetAddress.getByName(host), 50020)
+                }
+
                 val listener = java.net.ServerSocket()
-                listener.reuseAddress = true
-                listener.bind(InetSocketAddress(50020))
+                listener.bind(bindAddress, 50)
                 httpListener = listener
-                diagnostics.info(TAG, "EAAS HTTP server listening on 0.0.0.0:50020")
+                diagnostics.info(TAG, "EAAS HTTP server listening on ${listener.inetAddress.hostAddress}:50020")
 
                 while (!listener.isClosed) {
                     try {
@@ -142,6 +148,21 @@ class NetworkServerService : Service() {
                 }
             } catch (e: Exception) {
                 diagnostics.error(TAG, "Failed to start EAAS HTTP server on 50020", e)
+                diagnoseTcpBindFailure()
+            }
+        }
+    }
+
+    private fun diagnoseTcpBindFailure() {
+        val candidates = intArrayOf(50019, 50020, 50021, 50030)
+        for (candidate in candidates) {
+            try {
+                java.net.ServerSocket().use { probe ->
+                    probe.bind(InetSocketAddress(candidate))
+                    diagnostics.info(TAG, "TCP bind probe $candidate: OK")
+                }
+            } catch (e: Exception) {
+                diagnostics.warn(TAG, "TCP bind probe $candidate: ${e.javaClass.simpleName}: ${e.message}")
             }
         }
     }
@@ -353,6 +374,9 @@ class NetworkServerService : Service() {
         scope.cancel()
         super.onDestroy()
     }
+    /** Called by the bound Activity so Stop cannot depend on a second startService delivery. */
+    fun requestStop() = stopServer()
+
     fun getDiagnostics(): ServerDiagnostics = diagnostics
     fun getBoundPort(): Int = boundPort
     fun getBoundInterface(): String? = boundInterface
