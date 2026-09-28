@@ -8,17 +8,15 @@ import java.security.SecureRandom
 /**
  * Minimal EAAS discovery codec used by Engine OS Remote Library.
  *
- * Wire format used by current StageLinq/EAAS implementations:
- * request:  "EAAS" + 0x01 0x00
+ * Prime GO hardware testing shows that the legacy response shape is required
+ * for the device to keep the discovered source visible in the Source menu:
  * response: "EAAS" + 0x01 0x01 + token(16) +
- *           UTF-16BE hostname + UTF-8 grpc URL + UTF-16BE version
+ *            UTF-16BE hostname + UTF-8 grpc URL + UTF-16BE version +
+ *            0x01 + UTF-16BE extra.
  *
- * The older go-stagelinq implementation documented an additional 0x01 +
- * UTF-16BE "extra" field after the version. The current chrisle/StageLinq
- * implementation does not emit that tail. Prime GO hardware has so far
- * accepted our discovery request but never followed our legacy-tailed
- * response with a TCP/50010 connection, so v6 deliberately uses the
- * modern response shape for this hardware test.
+ * The current chrisle/StageLinq implementation omits the tail, but that shape
+ * caused Prime GO to stop displaying Mimic DJ, so the Prime GO compatibility
+ * path intentionally keeps the legacy tail.
  */
 object EaasDiscovery {
     const val PORT = 11224
@@ -50,16 +48,19 @@ object EaasDiscovery {
         hostname: String,
         grpcHost: String,
         grpcPort: Int,
-        softwareVersion: String
+        softwareVersion: String,
+        extra: String = "_"
     ): ByteArray {
         require(token.size == 16) { "EAAS token must contain exactly 16 bytes" }
 
-        val output = ByteArrayOutputStream(96)
+        val output = ByteArrayOutputStream(112)
         output.write(RESPONSE_PREFIX)
         output.write(token)
         writeNetworkString(output, hostname, Charsets.UTF_16BE)
         writeNetworkString(output, "grpc://$grpcHost:$grpcPort", Charsets.UTF_8)
         writeNetworkString(output, softwareVersion, Charsets.UTF_16BE)
+        output.write(0x01)
+        writeNetworkString(output, extra, Charsets.UTF_16BE)
         return output.toByteArray()
     }
 
