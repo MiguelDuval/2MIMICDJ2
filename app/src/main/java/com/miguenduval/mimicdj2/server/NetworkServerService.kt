@@ -100,7 +100,7 @@ class NetworkServerService : Service() {
                 .forPort(port)
                 .executor(executor)
                 .addService(NetworkTrustGrpcService(diagnostics))
-                .addInterceptor(RpcDiagnosticsInterceptor(diagnostics))
+                .intercept(RpcDiagnosticsInterceptor(diagnostics))
                 .addTransportFilter(GrpcTransportDiagnosticsFilter(diagnostics))
                 .build()
                 .start()
