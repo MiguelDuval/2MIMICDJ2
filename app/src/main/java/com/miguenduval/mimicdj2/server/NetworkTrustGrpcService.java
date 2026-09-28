@@ -16,8 +16,8 @@ public final class NetworkTrustGrpcService extends NetworkTrustServiceGrpc.Netwo
     public void createTrust(
             CreateTrustRequest request,
             StreamObserver<CreateTrustResponse> responseObserver) {
-        diagnostics.trustMessages.incrementAndGet();
-        diagnostics.lastTrustRequest = System.currentTimeMillis();
+        diagnostics.getTrustMessages().incrementAndGet();
+        diagnostics.setLastTrustRequest(System.currentTimeMillis());
 
         String deviceName = request.hasDeviceName() ? request.getDeviceName() : "";
         String pk = request.hasEd25519Pk() ? request.getEd25519Pk() : "";
