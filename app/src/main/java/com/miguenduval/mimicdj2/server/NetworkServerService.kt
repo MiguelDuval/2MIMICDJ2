@@ -52,6 +52,7 @@ class NetworkServerService : Service() {
     private var boundInterface: String? = null
     private val lifecycleLock = Any()
     @Volatile private var serverState = ServerState.STOPPED
+    @Volatile private var primeGoPortsProbed = false
 
     // Binder for service binding
     inner class LocalBinder : Binder() {
@@ -389,6 +390,23 @@ class NetworkServerService : Service() {
                             continue
                         }
 
+                        if (!primeGoPortsProbed) {
+                            primeGoPortsProbed = true
+                            scope.launch {
+                                val peer = sender?.address?.hostAddress
+                                if (!peer.isNullOrBlank()) {
+                                    diagnostics.primeGoPort50010 = probeTcpEndpoint(peer, 50010)
+                                    diagnostics.primeGoPort50020 = probeTcpEndpoint(peer, 50020)
+                                    diagnostics.primeGoPort50021 = probeTcpEndpoint(peer, 50021)
+                                    diagnostics.info(
+                                        TAG,
+                                        "Prime GO reverse TCP probes: 50010=${diagnostics.primeGoPort50010}, " +
+                                            "50020=${diagnostics.primeGoPort50020}, 50021=${diagnostics.primeGoPort50021}"
+                                    )
+                                }
+                            }
+                        }
+
                         val responseHost = resolveLocalIPv4For(sender?.address)
                         val response = EaasDiscovery.buildResponse(
                             token = eaasToken,
@@ -485,6 +503,7 @@ class NetworkServerService : Service() {
         boundInterface = null
         httpBoundPort = 0
         httpBindError = null
+        primeGoPortsProbed = false
         NetworkAddress.clearProcessBinding(applicationContext)
 
         synchronized(lifecycleLock) {
@@ -526,6 +545,7 @@ class NetworkServerService : Service() {
         boundInterface = null
         httpBoundPort = 0
         httpBindError = null
+        primeGoPortsProbed = false
         synchronized(lifecycleLock) { serverState = ServerState.STOPPED }
         updateNotification("Server stopped")
         stopForeground(true)
