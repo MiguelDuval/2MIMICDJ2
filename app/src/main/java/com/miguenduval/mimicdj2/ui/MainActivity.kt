@@ -142,7 +142,10 @@ class MainActivity : AppCompatActivity() {
     private fun startServer() {
         val intent = Intent(this, NetworkServerService::class.java).apply {
             action = NetworkServerService.ACTION_START_SERVER
-            putExtra(NetworkServerService.EXTRA_PORT, 50010)
+            // Diagnostic A/B build: deliberately use a known-bindable port.
+            // Discovery advertises the actual boundPort, so this tests whether
+            // Prime GO accepts the advertised gRPC endpoint when it is not 50010.
+            putExtra(NetworkServerService.EXTRA_PORT, 50100)
         }
         try {
             ContextCompat.startForegroundService(this, intent)
