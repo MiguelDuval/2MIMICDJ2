@@ -440,7 +440,7 @@ class NetworkServerService : Service() {
                             token = eaasToken,
                             hostname = "Mimic DJ",
                             grpcHost = responseHost,
-                            grpcPort = boundPort.coerceAtLeast(port),
+                            grpcPort = boundPort,
                             softwareVersion = BuildConfig.VERSION_NAME,
                             extra = "_"
                         )
