@@ -60,7 +60,9 @@ object PortDiagnostics {
             return "socket " + t.javaClass.simpleName + ": " + (t.message ?: "no message")
         }
         return try {
-            Os.setsockoptInt(fd, OsConstants.SOL_SOCKET, OsConstants.SO_REUSEADDR, 1)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                Os.setsockoptInt(fd, OsConstants.SOL_SOCKET, OsConstants.SO_REUSEADDR, 1)
+            }
             Os.bind(fd, java.net.InetAddress.getByName("0.0.0.0"), port)
             Os.listen(fd, 4)
             "ALLOWED"
