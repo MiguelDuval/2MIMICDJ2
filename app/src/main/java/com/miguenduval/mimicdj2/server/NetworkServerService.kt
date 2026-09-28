@@ -35,6 +35,7 @@ class NetworkServerService : Service() {
     private val diagnostics = ServerDiagnostics()
     private val scope = CoroutineScope(Dispatchers.IO + Job())
     private var grpcServer: Server? = null
+    private var httpListener: java.net.ServerSocket? = null
     private var udpListener: java.net.DatagramSocket? = null
     private var multicastLock: WifiManager.MulticastLock? = null
     private lateinit var eaasToken: ByteArray
