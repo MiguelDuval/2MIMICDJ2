@@ -46,6 +46,12 @@ class ServerDiagnostics {
     var lastTrackRequest: Long = 0
     var lastFileTransfer: Long = 0
     var lastClientContact: Long = 0
+    // Reverse-connectivity probes: the phone checks whether the Prime GO
+    // itself exposes a TCP service on candidate ports. This is read-only
+    // diagnostics and does not change the server protocol.
+    @Volatile var primeGoPort50010: String? = null
+    @Volatile var primeGoPort50020: String? = null
+    @Volatile var primeGoPort50021: String? = null
 
     // Last payloads for inspection
     var lastDiscoveryRxPayload: ByteArray? = null
@@ -109,6 +115,9 @@ class ServerDiagnostics {
         sb.append("Last Track: ${if (lastTrackRequest > 0) fmt.format(Date(lastTrackRequest)) else "never"}\n")
         sb.append("Last Client IP: ${lastClientIp ?: "none"}\n")
         sb.append("Last Contact: ${if (lastClientContact > 0) fmt.format(Date(lastClientContact)) else "never"}\n\n")
+        sb.append("Prime GO TCP/50010: ${primeGoPort50010 ?: "not probed"}\n")
+        sb.append("Prime GO TCP/50020: ${primeGoPort50020 ?: "not probed"}\n")
+        sb.append("Prime GO TCP/50021: ${primeGoPort50021 ?: "not probed"}\n\n")
 
         sb.append("--- File Server ---\n")
         sb.append("Requests: ${fileRequests.get()}\n")
