@@ -13,6 +13,7 @@ import android.net.wifi.WifiManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.miguenduval.mimicdj2.BuildConfig
+import com.miguenduval.mimicdj2.network.EaasDiscovery
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
