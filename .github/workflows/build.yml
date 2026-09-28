@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: build-${{ github.workflow }}-${{ github.ref }}
@@ -182,3 +182,18 @@ jobs:
           path: ci-artifacts/**
           if-no-files-found: warn
           retention-days: 14
+      - name: Publish raw debug APK
+        if: github.event_name == 'push' && github.ref == 'refs/heads/agent/clean-slate'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          gh release delete mimicdj2-test --cleanup-tag --yes || true
+          gh release create mimicdj2-test \
+            "$APK" \
+            --prerelease \
+            --title "2MIMICDJ2 test APK" \
+            --notes "Raw APK for Prime GO hardware testing. Commit ${GITHUB_SHA}."
