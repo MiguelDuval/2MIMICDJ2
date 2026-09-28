@@ -128,6 +128,14 @@ class NetworkServerService : Service() {
     }
 
     private fun doStartServer(port: Int, iface: String?) {
+        StartupFailureGuard.run(
+            onFailure = { throwable -> handleStartupFailure(throwable) }
+        ) {
+            doStartServerUnsafe(port, iface)
+        }
+    }
+
+    private fun doStartServerUnsafe(port: Int, iface: String?) {
         var localServer: Server? = null
         try {
             val lanIp = if (iface.isNullOrBlank()) {
