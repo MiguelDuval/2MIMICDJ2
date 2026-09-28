@@ -240,7 +240,7 @@ class MainActivity : AppCompatActivity() {
             val httpError = serverService?.getHttpBindError()
             tvServicesInfo.text = "TCP gRPC: ${if (port > 0) "$iface:$port" else "not bound"}\n" +
                     "EAAS UDP discovery: ${if (port > 0) "0.0.0.0:11224" else "not bound"}\n" +
-                    "HTTP 50020: ${if (httpPort == 50020) "ON" else "OFF"}" +
+                    "HTTP ${if (port > 0) port + 10 else 0}: ${if (httpPort == port + 10) "ON" else "OFF"}" +
                     (if (httpError != null) "\nHTTP error: $httpError" else "")
 
             tvDiscoveryInfo.text = "Discovery: ${if (port > 0) "ON" else "OFF"}\nRX: ${diag.discoveryRxCount.get()} | TX: ${diag.discoveryTxCount.get()}\nLast RX: ${if (diag.lastDiscoveryRx > 0) formatTime(diag.lastDiscoveryRx) else "never"}\nLast TX: ${if (diag.lastDiscoveryTx > 0) formatTime(diag.lastDiscoveryTx) else "never"}"
