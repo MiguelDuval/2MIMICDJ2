@@ -1,0 +1,1 @@
+Temporary CI trigger for the 50010 hardware-test build.
