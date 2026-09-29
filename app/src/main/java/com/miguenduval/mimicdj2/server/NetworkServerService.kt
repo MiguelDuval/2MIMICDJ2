@@ -191,9 +191,10 @@ class NetworkServerService : Service() {
 
             diagnostics.info(TAG, "EAAS gRPC server listening on $lanIp:$port")
             scope.launch { probeLocalGrpcTcp(lanIp, port) }
-            // Prime GO diagnostic mode: keep EAAS gRPC on 50010 while HTTP
-            // uses the known-bindable alternate port to isolate session establishment.
-            val httpPort = if (port == 50010) 50110 else port + 10
+            // EAAS standard port pair: gRPC 50010 + HTTP 50020.
+            // The HTTP endpoint is part of the Engine Remote Library contract,
+            // so do not move it to an alternate port during normal operation.
+            val httpPort = port + 10
             startHttpServer(httpPort)
             startEaasDiscoveryListener()
             updateNotification("EAAS gRPC + HTTP + discovery on $lanIp:$port")
@@ -318,12 +319,23 @@ class NetworkServerService : Service() {
             diagnostics.lastClientContact = System.currentTimeMillis()
             diagnostics.info(TAG, "HTTP ${request.method} ${request.path} from native client")
 
-            val status = if (request.method == "GET" && request.path == "/ping") 200 else 404
-            val body = if (status == 200) ByteArray(0) else "Not Found".toByteArray(Charsets.UTF_8)
+            val status = when {
+                request.method == "GET" && request.path == "/ping" -> 200
+                request.method == "HEAD" && request.path == "/ping" -> 200
+                else -> 404
+            }
+            val body = if (status == 404) {
+                "Not Found".toByteArray(Charsets.UTF_8)
+            } else {
+                ByteArray(0)
+            }
             val reason = if (status == 200) "OK" else "Not Found"
-            val headers = "HTTP/1.1 " + status + " " + reason + "\\r\\n" +
-                    "Content-Length: " + body.size + "\\r\\n" +
-                    "Connection: close\\r\\n\\r\\n"
+            // HTTP requires literal CRLF delimiters. The previous diagnostic
+            // listener emitted the characters "\\r\\n", making the response malformed.
+            val headers = "HTTP/1.1 " + status + " " + reason + "\r\n" +
+                    "Content-Length: " + body.size + "\r\n" +
+                    "Content-Type: application/octet-stream\r\n" +
+                    "Connection: close\r\n\r\n"
             output.write(headers.toByteArray(Charsets.US_ASCII))
             output.write(body)
             output.flush()
