@@ -446,7 +446,7 @@ class NetworkServerService : Service() {
                     probe.connect(peer, 9)
                     val local = probe.localAddress
                     if (local is java.net.Inet4Address && !local.isLoopbackAddress && !local.isLinkLocalAddress) {
-                        return local.hostAddress
+                        local.hostAddress?.let { return it }
                     }
                 }
             }
