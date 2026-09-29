@@ -31,8 +31,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.io.FileDescriptor
-import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.util.concurrent.Executors
@@ -47,6 +45,8 @@ class NetworkServerService : Service() {
     private var udpListener: java.net.DatagramSocket? = null
     private var multicastLock: WifiManager.MulticastLock? = null
     private lateinit var eaasToken: ByteArray
+    private lateinit var mediaLibrary: MediaLibrary
+    private lateinit var httpFileServer: EaasHttpFileServer
     private val executor = Executors.newCachedThreadPool()
     private var boundPort = 0
     private var boundInterface: String? = null
@@ -76,6 +76,8 @@ class NetworkServerService : Service() {
         super.onCreate()
         createNotificationChannel()
         eaasToken = com.miguenduval.mimicdj2.network.EaasDiscovery.newToken()
+        mediaLibrary = MediaLibrary(this)
+        httpFileServer = EaasHttpFileServer(mediaLibrary, diagnostics)
         diagnostics.info(TAG, "Service created")
     }
 
@@ -169,7 +171,11 @@ class NetworkServerService : Service() {
                 .socketFactory(GrpcServerSocketFactory(diagnostics))
                 .executor(executor)
                 .addService(NetworkTrustGrpcService(diagnostics))
-                .addService(EngineLibraryGrpcService())
+                .addService(
+                    EngineLibraryGrpcService(mediaLibrary) {
+                        NetworkAddress.currentLanIpv4(applicationContext) ?: "0.0.0.0"
+                    }
+                )
                 .addService(MimicEngineSyncService())
                 .intercept(RpcDiagnosticsInterceptor(diagnostics))
                 .addTransportFilter(GrpcTransportDiagnosticsFilter(diagnostics))
@@ -219,10 +225,25 @@ class NetworkServerService : Service() {
                             1
                         )
                     }
-                    // Do not bind this descriptor to a ConnectivityManager Network.
-                    // The old Mimic branch removed that step because it could break
-                    // ingress on local/hotspot interfaces.
-                    Os.bind(fd, InetAddress.getByName("0.0.0.0"), 50020)
+                    // Prefer the concrete LAN address. This preserves the normal
+                    // EAAS 50020 endpoint while avoiding a vendor/kernel policy
+                    // that may reject wildcard binds on some Android builds.
+                    val lanHost = NetworkAddress.currentLanIpv4(applicationContext)
+                    val bindHost = lanHost ?: "0.0.0.0"
+                    try {
+                        Os.bind(fd, InetAddress.getByName(bindHost), 50020)
+                    } catch (first: Throwable) {
+                        if (bindHost != "0.0.0.0") {
+                            diagnostics.warn(
+                                TAG,
+                                "HTTP 50020 bind on $bindHost failed; retrying wildcard: " +
+                                    first.javaClass.simpleName + ": " + (first.message ?: "no message")
+                            )
+                            Os.bind(fd, InetAddress.getByName("0.0.0.0"), 50020)
+                        } else {
+                            throw first
+                        }
+                    }
                     Os.listen(fd, 64)
                 } catch (t: Throwable) {
                     runCatching { Os.close(fd) }
@@ -236,7 +257,7 @@ class NetworkServerService : Service() {
                 httpServerFd = fd
                 httpBoundPort = 50020
                 httpBindError = null
-                diagnostics.info(TAG, "EAAS HTTP native server listening on 0.0.0.0:50020")
+                diagnostics.info(TAG, "EAAS HTTP native server listening on 50020")
 
                 while (httpServerFd != null) {
                     try {
@@ -295,61 +316,7 @@ class NetworkServerService : Service() {
             }
         )
     private fun handleHttpClient(fd: FileDescriptor) {
-        var input: FileInputStream? = null
-        var output: FileOutputStream? = null
-        try {
-            val inputFd = Os.dup(fd)
-            val outputFd = Os.dup(fd)
-            input = FileInputStream(inputFd)
-            output = FileOutputStream(outputFd)
-
-            val request = readHttpRequest(input)
-            if (request == null) return
-
-            diagnostics.fileRequests.incrementAndGet()
-            diagnostics.lastClientContact = System.currentTimeMillis()
-            diagnostics.info(TAG, "HTTP ${request.method} ${request.path} from native client")
-
-            val status = if (request.method == "GET" && request.path == "/ping") 200 else 404
-            val body = if (status == 200) ByteArray(0) else "Not Found".toByteArray(Charsets.UTF_8)
-            val reason = if (status == 200) "OK" else "Not Found"
-            val headers = "HTTP/1.1 " + status + " " + reason + "\\r\\n" +
-                    "Content-Length: " + body.size + "\\r\\n" +
-                    "Connection: close\\r\\n\\r\\n"
-            output.write(headers.toByteArray(Charsets.US_ASCII))
-            output.write(body)
-            output.flush()
-            diagnostics.bytesServed.addAndGet(body.size.toLong())
-            if (status == 404) diagnostics.errors404.incrementAndGet()
-        } catch (e: Throwable) {
-            diagnostics.errors500.incrementAndGet()
-            diagnostics.error(TAG, "Error handling native HTTP client", e)
-        } finally {
-            runCatching { output?.close() }
-            runCatching { input?.close() }
-            runCatching { Os.close(fd) }
-        }
-    }
-
-    private data class HttpRequest(val method: String, val path: String)
-
-    private fun readHttpRequest(input: java.io.InputStream): HttpRequest? {
-        val bytes = java.io.ByteArrayOutputStream()
-        val one = ByteArray(1)
-        var state = 0
-        while (bytes.size() < 16384) {
-            val n = input.read(one)
-            if (n < 0) break
-            bytes.write(one[0].toInt())
-            when (state) {
-                0 -> if (bytes.toByteArray().takeLast(4).toByteArray().contentEquals(byteArrayOf(13, 10, 13, 10))) break
-            }
-        }
-        if (bytes.size() == 0) return null
-        val line = bytes.toString(Charsets.US_ASCII.name()).lineSequence().firstOrNull() ?: return null
-        val parts = line.trim().split(" ")
-        if (parts.size < 2) return null
-        return HttpRequest(parts[0], parts[1])
+        httpFileServer.handle(fd)
     }
     private fun startEaasDiscoveryListener() {
         scope.launch {
@@ -632,6 +599,8 @@ class NetworkServerService : Service() {
     fun getBoundInterface(): String? = boundInterface
     fun getHttpBoundPort(): Int = httpBoundPort
     fun getHttpBindError(): String? = httpBindError
+    fun getIndexedTrackCount(forceRefresh: Boolean = false): Int =
+        if (::mediaLibrary.isInitialized) mediaLibrary.snapshot(forceRefresh).size else 0
 }
 
 private class RpcDiagnosticsInterceptor(

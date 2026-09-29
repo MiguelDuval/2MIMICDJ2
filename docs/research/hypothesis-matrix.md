@@ -18,27 +18,27 @@
 | **Trust** | Request/response sequence | UNKNOWN — NEEDS EVIDENCE | | Unknown | Low |
 | **Trust** | Cryptography or simple approval? | UNKNOWN — NEEDS EVIDENCE | | Simple approval (historical) | Low |
 | **Trust** | Interactive approval? | UNKNOWN — NEEDS EVIDENCE | | Unknown | Low |
-| **Transport** | TCP/UDP? | PARTIAL — UDP discovery confirmed; no inbound TCP session observed after discovery | 2026-09-28 physical test | TCP likely next stage, but target-specific evidence is still missing | Medium |
-| **Transport** | Fixed or dynamic port? | UNKNOWN — target did not open a TCP session in this test | 2026-09-28 physical test | Do not treat 50010/50020 as proven architecture yet | Low |
-| **Transport** | HTTP/1.1 / HTTP/2 / custom framing? | UNKNOWN — NEEDS EVIDENCE | | HTTP/2 + gRPC (SC6000) or custom | Low |
-| **RPC** | Service name? | UNKNOWN — NEEDS EVIDENCE | | engine.LibraryService (SC6000) | Low |
-| **RPC** | Method names? | UNKNOWN — NEEDS EVIDENCE | | GetLibrary, GetTracks, GetTrack | Low |
-| **RPC** | Request/response encoding? | UNKNOWN — NEEDS EVIDENCE | | Protobuf (if gRPC) | Low |
+| **Transport** | TCP/UDP? | OBSERVED — UDP discovery + inbound TCP/50010 and TCP/50020 | denonlog2.txt, 2026-09-29 direct Wireshark capture | Prime GO Remote Library uses TCP after EAAS discovery | High |
+| **Transport** | Fixed or dynamic port? | OBSERVED — 50010 and 50020 used in direct Prime GO session | denonlog2.txt, 2026-09-29 | 50010 = gRPC/HTTP2 library session; 50020 = HTTP file transfer | High |
+| **Transport** | HTTP/1.1 / HTTP/2 / custom framing? | OBSERVED — HTTP/2 on 50010; HTTP/1.1 on 50020 | denonlog2.txt, 2026-09-29 | Split EAAS transport: gRPC library + HTTP file stream | High |
+| **RPC** | Service name? | OBSERVED | denonlog2.txt, 2026-09-29 | enginelibrary.v1.EngineLibraryService | High |
+| **RPC** | Method names? | OBSERVED | denonlog2.txt, 2026-09-29 | EventStream, GetLibrary, GetTracks, GetTrack observed | High |
+| **RPC** | Request/response encoding? | OBSERVED — gRPC/PB over cleartext HTTP/2 | denonlog2.txt, 2026-09-29 | Protobuf / gRPC | High |
 | **RPC** | Streaming vs unary? | UNKNOWN — NEEDS EVIDENCE | | Unary for metadata, streaming for browse? | Low |
-| **Library** | Root library request? | UNKNOWN — NEEDS EVIDENCE | | GetLibrary with root ID | Low |
+| **Library** | Root library request? | OBSERVED — GetLibrary then GetTracks | denonlog2.txt, 2026-09-29 | Implement GetLibraries/GetLibrary/GetTracks for MVP | High |
 | **Library** | Hierarchy? | UNKNOWN — NEEDS EVIDENCE | | Playlists -> tracks | Low |
 | **Library** | Pagination? | UNKNOWN — NEEDS EVIDENCE | | Unknown | Low |
 | **Library** | Search? | UNKNOWN — NEEDS EVIDENCE | | Unknown | Low |
 | **Library** | Filters? | UNKNOWN — NEEDS EVIDENCE | | Unknown | Low |
-| **Tracks** | Metadata fields consumed? | UNKNOWN — NEEDS EVIDENCE | | Title, artist, album, BPM, duration, artwork | Low |
+| **Tracks** | Metadata fields consumed? | PARTIAL — GetTrack is followed by file download; exact decoded protobuf fields not present in packet-list export | denonlog2.txt, 2026-09-29 | Return stable id + title/artist/album/duration and HTTP blob URL | Medium |
 | **Tracks** | Artwork? | UNKNOWN — NEEDS EVIDENCE | | Possibly required | Low |
 | **Tracks** | Performance data? | UNKNOWN — NEEDS EVIDENCE | | Beatgrid, cues? | Low |
-| **Track Retrieval** | Returned location/URL/blob? | UNKNOWN — NEEDS EVIDENCE | | HTTP URL with IP/port | Low |
-| **File Transfer** | Protocol? | UNKNOWN — NEEDS EVIDENCE | | HTTP/1.1 (historical) | Low |
-| **File Transfer** | Range requests? | UNKNOWN — NEEDS EVIDENCE | | Likely (seeking) | Low |
+| **Track Retrieval** | Returned location/URL/blob? | OBSERVED indirectly — HTTP request path is /download/<URL-encoded file key>; GetTrack occurs immediately before it | denonlog2.txt, 2026-09-29 | GetTrackResponse.blob.url should resolve to TCP/50020 download endpoint | High |
+| **File Transfer** | Protocol? | OBSERVED — HTTP/1.1 200 OK followed by ~41.6 MB response stream | denonlog2.txt, 2026-09-29 | Native HTTP/1.1 server on 50020 | High |
+| **File Transfer** | Range requests? | UNKNOWN — not exercised in this capture | denonlog2.txt, 2026-09-29 | Implement single-byte-range support defensively | Low |
 | **File Transfer** | HEAD support? | UNKNOWN — NEEDS EVIDENCE | | Likely | Low |
-| **File Transfer** | Content-Length? | UNKNOWN — NEEDS EVIDENCE | | Required | Low |
-| **File Transfer** | Content-Type? | UNKNOWN — NEEDS EVIDENCE | | audio/mpeg, audio/flac, etc. | Low |
+| **File Transfer** | Content-Length? | NOT SHOWN in packet-list export, but fixed-length binary transfer is strongly indicated | denonlog2.txt, 2026-09-29 | Send explicit Content-Length for reliable streaming | Medium |
+| **File Transfer** | Content-Type? | NOT SHOWN in packet-list export | denonlog2.txt, 2026-09-29 | Use MediaStore MIME type | Medium |
 | **File Transfer** | Redirects? | UNKNOWN — NEEDS EVIDENCE | | Unknown | Low |
 | **File Transfer** | Retries? | UNKNOWN — NEEDS EVIDENCE | | Unknown | Low |
 | **File Transfer** | Connection reuse? | UNKNOWN — NEEDS EVIDENCE | | Keep-alive likely | Low |
