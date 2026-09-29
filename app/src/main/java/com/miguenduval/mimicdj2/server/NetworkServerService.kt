@@ -225,10 +225,25 @@ class NetworkServerService : Service() {
                             1
                         )
                     }
-                    // Do not bind this descriptor to a ConnectivityManager Network.
-                    // The old Mimic branch removed that step because it could break
-                    // ingress on local/hotspot interfaces.
-                    Os.bind(fd, InetAddress.getByName("0.0.0.0"), 50020)
+                    // Prefer the concrete LAN address. This preserves the normal
+                    // EAAS 50020 endpoint while avoiding a vendor/kernel policy
+                    // that may reject wildcard binds on some Android builds.
+                    val lanHost = NetworkAddress.currentLanIpv4(applicationContext)
+                    val bindHost = lanHost ?: "0.0.0.0"
+                    try {
+                        Os.bind(fd, InetAddress.getByName(bindHost), 50020)
+                    } catch (first: Throwable) {
+                        if (bindHost != "0.0.0.0") {
+                            diagnostics.warn(
+                                TAG,
+                                "HTTP 50020 bind on $bindHost failed; retrying wildcard: " +
+                                    first.javaClass.simpleName + ": " + (first.message ?: "no message")
+                            )
+                            Os.bind(fd, InetAddress.getByName("0.0.0.0"), 50020)
+                        } else {
+                            throw first
+                        }
+                    }
                     Os.listen(fd, 64)
                 } catch (t: Throwable) {
                     runCatching { Os.close(fd) }
@@ -242,7 +257,7 @@ class NetworkServerService : Service() {
                 httpServerFd = fd
                 httpBoundPort = 50020
                 httpBindError = null
-                diagnostics.info(TAG, "EAAS HTTP native server listening on 0.0.0.0:50020")
+                diagnostics.info(TAG, "EAAS HTTP native server listening on 50020")
 
                 while (httpServerFd != null) {
                     try {
