@@ -584,6 +584,8 @@ class NetworkServerService : Service() {
     fun getBoundInterface(): String? = boundInterface
     fun getHttpBoundPort(): Int = httpBoundPort
     fun getHttpBindError(): String? = httpBindError
+    fun getIndexedTrackCount(forceRefresh: Boolean = false): Int =
+        if (::mediaLibrary.isInitialized) mediaLibrary.snapshot(forceRefresh).size else 0
 }
 
 private class RpcDiagnosticsInterceptor(
