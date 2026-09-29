@@ -14,20 +14,21 @@ import javax.net.ServerSocketFactory
  * sent in the EAAS discovery response.
  */
 class GrpcServerSocketFactory(
-    private val diagnostics: ServerDiagnostics
+    private val diagnostics: ServerDiagnostics,
+    private val bindAddress: String
 ) : ServerSocketFactory() {
     override fun createServerSocket(): ServerSocket = LoggingServerSocket()
 
     override fun createServerSocket(port: Int): ServerSocket =
         LoggingServerSocket().also { socket ->
             socket.reuseAddress = true
-            socket.bind(InetSocketAddress("0.0.0.0", port))
+            socket.bind(InetSocketAddress(bindAddress, port))
         }
 
     override fun createServerSocket(port: Int, backlog: Int): ServerSocket =
         LoggingServerSocket().also { socket ->
             socket.reuseAddress = true
-            socket.bind(InetSocketAddress("0.0.0.0", port), backlog)
+            socket.bind(InetSocketAddress(bindAddress, port), backlog)
         }
 
     override fun createServerSocket(
