@@ -262,6 +262,7 @@ class NetworkServerService : Service() {
         throw lastFailure ?: IllegalStateException("No usable EAAS endpoint pair")
     }
 
+    @android.annotation.SuppressLint("NewApi")
     private fun bindHttpServer(httpPort: Int): FileDescriptor {
         val fd = Os.socket(
             OsConstants.AF_INET,
