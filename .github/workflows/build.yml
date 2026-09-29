@@ -179,10 +179,10 @@ jobs:
           set -euo pipefail
           APK="app/build/outputs/apk/debug/app-debug.apk"
           test -s "$APK"
-          TAG="mimicdj2-test-${GITHUB_REF_NAME//\//-}"
-          gh release delete "$TAG" --cleanup-tag --yes || true
+          TAG="mimicdj2-test-${GITHUB_SHA:0:12}"
           gh release create "$TAG" \
             "$APK" \
+            --target "$GITHUB_SHA" \
             --prerelease \
-            --title "2MIMICDJ2 test APK — ${GITHUB_REF_NAME}" \
+            --title "2MIMICDJ2 test APK — ${GITHUB_REF_NAME} @ ${GITHUB_SHA:0:12}" \
             --notes "Raw APK for Prime GO hardware testing. Commit ${GITHUB_SHA}."
