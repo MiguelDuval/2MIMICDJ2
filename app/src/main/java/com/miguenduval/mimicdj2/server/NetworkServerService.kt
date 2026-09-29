@@ -176,7 +176,17 @@ class NetworkServerService : Service() {
         // 50020, move only HTTP to 50110 so the advertised gRPC endpoint stays
         // stable and the StageLinQ path can be tested independently.
         val candidates = if (port == 50010) {
-            listOf(50010 to 50020, 50010 to 50110)
+            // Some Android/vendor network stacks deny the classic EAAS ports
+            // (50010/50020) with EPERM even though other TCP ports are usable.
+            // Preserve the standard pair first, then keep the service alive on
+            // known alternate ports so diagnostics and further hardware tests
+            // can still run instead of making the Start button appear dead.
+            listOf(
+                50010 to 50020,
+                50010 to 50110,
+                50100 to 50110,
+                60000 to 60010
+            )
         } else {
             listOf(port to (port + 10))
         }
