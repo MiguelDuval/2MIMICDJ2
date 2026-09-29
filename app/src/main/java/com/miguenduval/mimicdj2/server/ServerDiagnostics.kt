@@ -41,6 +41,8 @@ class ServerDiagnostics {
     val openFileFailures = AtomicLong(0)
     val stageLinqDiscoveryTxCount = AtomicLong(0)
     val stageLinqDiscoveryRxCount = AtomicLong(0)
+    val stageLinqDiscoverySelfRxCount = AtomicLong(0)
+    val stageLinqDiscoveryPeerRxCount = AtomicLong(0)
     val stageLinqDirectoryAccepts = AtomicLong(0)
     val stageLinqDirectoryRxCount = AtomicLong(0)
     val stageLinqDirectoryTxCount = AtomicLong(0)
@@ -69,6 +71,7 @@ class ServerDiagnostics {
     @Volatile var stageLinqDirectoryPort: Int = 0
     @Volatile var stageLinqBroadcastTargets: String? = null
     @Volatile var lastStageLinqClientIp: String? = null
+    @Volatile var lastStageLinqPeerDiscoveryIp: String? = null
     @Volatile var lastStageLinqDiscoveryRx: Long = 0
     @Volatile var lastStageLinqDiscoveryTx: Long = 0
     @Volatile var lastStageLinqDiscoveryPayload: ByteArray? = null
@@ -150,11 +153,12 @@ class ServerDiagnostics {
         sb.append("Prime GO high-port scan: ${primeGoHighPortScan ?: "not started"}\n")
         sb.append("Prime GO high-port scan progress: ${primeGoHighPortScanProgress ?: "not started"}\n\n")
         sb.append("--- StageLinQ ---\n")
-        sb.append("UDP 51337 TX: ${stageLinqDiscoveryTxCount.get()} | RX: ${stageLinqDiscoveryRxCount.get()}\n")
+        sb.append("UDP 51337 TX: ${stageLinqDiscoveryTxCount.get()} | RX: ${stageLinqDiscoveryRxCount.get()} (self=${stageLinqDiscoverySelfRxCount.get()}, peer=${stageLinqDiscoveryPeerRxCount.get()})\n")
         sb.append("Directory: ${if (stageLinqDirectoryPort > 0) stageLinqDirectoryPort else "not bound"}\n")
         sb.append("Directory accepts: ${stageLinqDirectoryAccepts.get()} | RX: ${stageLinqDirectoryRxCount.get()} | TX: ${stageLinqDirectoryTxCount.get()}\n")
         sb.append("Service accepts: ${stageLinqServiceAccepts.get()}\n")
         sb.append("Last StageLinQ client IP: ${lastStageLinqClientIp ?: "none"}\n")
+        sb.append("Last StageLinQ peer discovery IP: ${lastStageLinqPeerDiscoveryIp ?: "none"}\n")
         sb.append("Last discovery payload: ${lastStageLinqDiscoveryPayload?.let { bytesToHex(it) } ?: "none"}\n")
         sb.append("Last directory RX: ${lastStageLinqDirectoryPayload?.let { bytesToHex(it) } ?: "none"}\n")
         sb.append("Last directory TX: ${lastStageLinqDirectoryTxPayload?.let { bytesToHex(it) } ?: "none"}\n")
