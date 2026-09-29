@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -142,47 +142,20 @@ jobs:
             -Pandroid.sdk.dir="${ANDROID_HOME:-/usr/lib/android-sdk}" \
             -Pandroid.home="${ANDROID_HOME:-/usr/lib/android-sdk}"
 
-      - name: Collect build outputs
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p ci-artifacts
-
-          find . -type f \( \
-            -name "*.apk" -o \
-            -name "*.aab" -o \
-            -name "*.jar" -o \
-            -name "*.aar" -o \
-            -name "*.zip" \
-          \) \
-            -not -path "./.git/*" \
-            -not -path "./ci-artifacts/*" \
-            -print -exec cp --parents "{}" ci-artifacts/ \;
-
-          if [[ -d "build/reports" ]]; then
-            cp -r build/reports ci-artifacts/ || true
-          fi
-
-          if find ci-artifacts -type f | grep -q .; then
-            echo "Artifacts collected:"
-            find ci-artifacts -type f -print
-          else
-            echo "No distributable artifact exists yet."
-          fi
-
-      - name: Publish raw debug APK
-        if: github.event_name == 'push' && github.ref != 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Prepare APK artifact
         shell: bash
         run: |
           set -euo pipefail
           APK="app/build/outputs/apk/debug/app-debug.apk"
           test -s "$APK"
-          TAG="mimicdj2-test-${GITHUB_SHA:0:12}"
-          gh release create "$TAG" \
-            "$APK" \
-            --target "$GITHUB_SHA" \
-            --prerelease \
-            --title "2MIMICDJ2 test APK — ${GITHUB_REF_NAME} @ ${GITHUB_SHA:0:12}" \
-            --notes "Raw APK for Prime GO hardware testing. Commit ${GITHUB_SHA}."
+          mkdir -p ci-artifacts
+          cp "$APK" "ci-artifacts/2MIMICDJ2-debug.apk"
+          ls -lh "ci-artifacts/2MIMICDJ2-debug.apk"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MimicDJ2-APK-${{ github.sha }}
+          path: ci-artifacts/2MIMICDJ2-debug.apk
+          if-no-files-found: error
+          retention-days: 14
