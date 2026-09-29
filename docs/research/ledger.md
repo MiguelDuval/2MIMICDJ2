@@ -1,0 +1,79 @@
+# Evidence Ledger
+
+**Format**: Date | Source | Scope/Device/Version | Observation | Evidence Class | Confidence | Reproduction Method | Consequence for Implementation | Open Question
+
+---
+
+## 2026-09-27 | C-LINE-MASTER-PROMPT | Project charter | Mission: Build Android app as local-network server for Denon DJ Prime GO (Engine OS). Phone stores music -> app exposes over LAN -> Prime GO discovers/connects/trusts/browses -> selects track -> obtains audio bytes -> plays locally. | D | High | N/A (charter) | Architecture must be determined from hardware evidence, not inherited from prior projects. | None (charter)
+
+## 2026-09-27 | C-LINE-MASTER-PROMPT | Project charter | Repository: MiguelDuval/2MIMICDJ2, branch: agent/clean-slate. Never develop on main. Clean-sheet approach. | D | High | N/A | All implementation from scratch. | None
+
+## 2026-09-27 | C-LINE-MASTER-PROMPT | Engineering principles | Hardware is final authority. When disagreement between any source and actual Prime GO behavior, Prime GO wins. Record disagreements. | D | High | N/A | All protocol decisions must be validated against actual hardware. | How to capture Prime GO traffic?
+
+## 2026-09-27 | C-LINE-MASTER-PROMPT | Engineering principles | Do not inherit architecture by accident. Stack choice must consider: what hardware speaks, Android reliability, protocol difficulty, testability, binary size, failure behavior, instrumentability, Wi-Fi/screen-lock survival. | D | High | N/A | Technology stack TBD after protocol investigation. | What does Prime GO actually speak?
+
+## 2026-09-27 | C-LINE-MASTER-PROMPT | Engineering principles | Do not treat old port numbers as facts (UDP 11224, TCP 50010, TCP 50020, UDP 51337 are hints only). | D | High | N/A | No hardcoded ports until verified. | Which ports does Prime GO actually use?
+
+## 2026-09-27 | C-LINE-MASTER-PROMPT | Engineering principles | Separate evidence from hypotheses. Maintain ledger with evidence classes A-E. Never silently upgrade E to A. | D | High | N/A | Ledger discipline required. | None
+
+## 2026-09-27 | C-LINE-MASTER-PROMPT | Target reconnaissance | Must determine before protocol implementation: exact hardware model, product variant (Prime GO vs Prime GO+), Engine OS version, firmware/build version, network connection type, phone Android version, phone Wi-Fi interface/IP, router/AP topology, VPN/hotspot/guest Wi-Fi/mesh status. | D | High | N/A | Need physical device access to populate. | What is the user's actual Prime GO configuration?
+
+## 2026-09-27 | C-LINE-MASTER-PROMPT | Official docs | Search current Denon DJ / Engine documentation for: Prime GO support, firmware/software relationships, Engine Remote Library behavior, network requirements, device discovery, trust/pairing, supported media formats, network requirements. | D | Medium | Web search | Official docs may not expose protocol but define product behavior. | Are official docs current for target firmware?
+
+## 2026-09-27 | deathcamel58.github.io | Reverse engineering | Engine networking: https://deathcamel58.github.io/denon-reverse-engineering/engine-networking.html | D | Medium | Web review | Reference for SC6000 Engine OS 5.0.4 — warns that public assumptions about ports/services can diverge from actual device behavior. | Does Prime GO behave like SC6000?
+
+## 2026-09-27 | deathcamel58.github.io | Reverse engineering | Engine gRPC: https://deathcamel58.github.io/denon-reverse-engineering/engine-grpc.html | D | Medium | Web review | gRPC service definitions for Engine OS — but scope/version must be verified. | Which gRPC services (if any) does Prime GO use?
+
+## 2026-09-27 | github.com/chrisle/StageLinq | Reference implementation | StageLinq protocol documentation, EAAS code, tests, Wireshark material, supported-device logic. | D | Medium | Source review | Prior art for EAAS/StageLinq. Authorized to disagree after evidence. | How much applies to Prime GO?
+
+## 2026-09-27 | github.com/icedream/go-stagelinq | Reference implementation | EAAS/storage implementation and tests. | D | Medium | Source review | Go implementation of StageLinq/EAAS. | Protocol compatibility with Prime GO?
+
+## 2026-09-27 | github.com/andyscuff/DenonDJ-Eaas-Server | Reference implementation | Source code, issues, commits, protocol assumptions. | D | Medium | Source review | Another EAAS server implementation. | Assumptions validated on Prime GO?
+
+## 2026-09-27 | C-LINE-MASTER-PROMPT | Protocol investigation matrix | Must create matrix covering: Link, Discovery, Trust, Transport, RPC, Library, Tracks, Track Retrieval, File Transfer, Failure, Network, Lifecycle layers with specific questions. | D | High | N/A | Matrix must be filled from evidence, not memory. | Need to populate from captures/research.## 2026-09-27 | C-LINE-MASTER-PROMPT | Capture strategy | Preferred: phone + Prime GO on same LAN, start Engine Remote Library workflow, capture discovery, source selection, trust, library browse, track selection, track transfer. Save sanitized captures. | D | High | N/A | Need capture capability. | What capture tools are available to user?
+
+## 2026-09-27 | deathcamel58.github.io/engine-networking | Reverse engineering (SC6000, Engine OS 5.0.4) | gRPC services: enginelibrary.v1.EngineLibraryService, enginesync.v1.EngineSyncService, networktrust.v1.NetworkTrustService, remotehostscreen.v1. Transport: gRPC over cleartext HTTP/2. Port 50010 = enginesync ONLY. enginelibrary & networktrust NOT on 50010 (UNIMPLEMENTED). Discovery: UDP 11224, 6 bytes "EAAS" + 0x01 0x00. Server binds all interfaces via QNetworkInterface::addressEntries(). Trust: CreateTrust with Ed25519 PK + device_name, interactive approve/deny on device. Eaas HTTP server on dynamic ports (cpp-httplib) with /ping and /download/<path>. License server on 41401 (hand-rolled HTTP). | D | Medium | Binary analysis + 2 live SC6000 units | Prime GO may differ from SC6000. enginelibrary/networktrust location unknown - could be different port, different interface, or post-pairing. | Where are enginelibrary.v1 and networktrust.v1 actually served on Prime GO?
+
+## 2026-09-27 | deathcamel58.github.io/engine-grpc | Reverse engineering (SC6000, Engine OS 5.0.4) | Port 50010 hardcoded. gRPC over cleartext HTTP/2, no TLS, no ALPN. Server preface: SETTINGS (MAX_CONCURRENT_STREAMS=0x7fffffff, INITIAL_WINDOW_SIZE=4MiB). Content-Type: application/grpc. No reflection. Required metadata: uuid (host UUID). Two gate checks: (1) uuid header present, (2) uuid in discovered-host table (maintained by SyncServiceDiscoverer). Discovery beacon (UDP 11224) NOT sufficient for discovered-host table. | D | Medium | Binary analysis + live verification | Must implement discovery beacon AND get into discovered-host table before gRPC works. | How does Prime GO populate discovered-host table?
+
+## 2026-09-27 | github.com/chrisle/StageLinq/docs/eaas.md | Reference implementation (TypeScript) | EAAS ports: 50010 gRPC, 50020 HTTP. Discovery: UDP 11224. Services: NetworkTrustService, EngineLibraryService. Beacon announces name, grpcPort, httpPort. HTTP: /ping health check, /download/{path} file download. | D | Medium | Source code review | Confirms EAAS protocol structure. | Prime GO EAAS compatibility?
+
+## 2026-09-27 | github.com/chrisle/StageLinq/docs/protocol.md | Reference implementation (TypeScript) | StageLinq discovery: UDP 51337, magic "airD". EAAS discovery: UDP 11224, request "EAAS" + 0x01 0x00, response "EAAS" + 0x01 0x01 + Token + Hostname + URL + Version. Data types: big-endian, Token=16 bytes, NetworkStringUTF16=length-prefixed UTF-16BE. FileTransfer magic "fltx". | D | Medium | Source code review | Two discovery protocols: StageLinq (51337) and EAAS (11224). Prime GO may use either or both. | Which discovery does Prime GO use?
+
+## 2026-09-27 | github.com/icedream/go-stagelinq/eaas/beacon.go | Reference implementation (Go) | EAAS Discovery Request: 6 bytes = "EAAS" + 0x01 0x00. Response: Token (16 bytes) + Hostname (UTF-16BE) + URL (UTF-8, grpc://IP:PORT) + SoftwareVersion (UTF-16BE) + 0x01 + Extra (UTF-16BE, usually "_"). Listens on 0.0.0.0:11224 UDP. Replies to source interface IP. | D | High | Source code review | Exact beacon packet format documented. Must implement this for Prime GO discovery. | Does Prime GO send the exact same request format?
+
+## 2026-09-27 | github.com/icedream/go-stagelinq/eaas/proto/enginelibrary/*.proto | Reference implementation (Go) | EngineLibraryService methods: GetLibraries, GetLibrary, GetTracks, GetTrack, SearchTracks, GetSearchFilters, GetHistorySessions, GetHistoryPlayedTracks, EventStream, GetCredentials, PutEvents. TrackMetadata fields: id, title, artist, album, key, bpm, rating, year, genre, comment, label, length_seconds, composer, remixer, date_added. TrackPerformanceData: beat_grid, quick_cues, loops, main_cue, overview_waveform, initial_import_source, bpm. TrackBlobUrl: url, file_size. PlaylistMetadata hierarchy. | D | High | Source code review | Complete gRPC service definition. Need to implement all methods for library browse. | Which methods does Prime GO actually call?
+
+## 2026-09-27 | github.com/icedream/go-stagelinq/eaas/proto/networktrust/service.proto | Reference implementation (Go) | NetworkTrustService: CreateTrust(CreateTrustRequest) -> CreateTrustResponse. Request: ed25519_pk (string), wireguard_port (uint32), device_name (string). Response: oneof granted/denied/busy. Busy reasons: too_many_attempts, handling_another_request. | D | High | Source code review | Trust uses Ed25519 public key + device name. Interactive approval on device. | Does Prime GO use same trust flow? What wireguard_port for?
+
+## 2026-09-27 | github.com/andyscuff/DenonDJ-Eaas-Server | Reference implementation (Go) | Working EAAS server for Prime 4+, SC6000. Ports: 11224 UDP discovery, 50010 TCP gRPC, 50020 TCP HTTP. Music structure: Genre/Artist/Album/Track or Genre/Artist/Track. Formats: FLAC, MP3, WAV, AIFF, M4A. Navidrome playlist integration. Requires --network host for Docker (UDP broadcast). | D | Medium | Source code review | Proven working implementation for Engine OS devices. Architecture: Go + go-stagelinq. | Does it work on Prime GO? Any Prime GO-specific issues?
+
+## 2026-09-28 | Legacy MimicDJ fix/android-lan-discovery | Android HTTP 50020 investigation | The original MimicDJ repository contains a dedicated investigation branch that tried Java ServerSocket on 50020, LAN-IP binding, NIO ServerSocketChannel, dual-stack, then native android.system.Os AF_INET/SOCK_STREAM bind/listen. The branch's final HTTP implementation retained the native Os socket path. Earlier experiments also tried per-socket ConnectivityManager network binding, which was later removed because it could break local/hotspot ingress; a temporary 50021 move was later reverted to 50020. | D | High | Git history review of MiguelDuval/MimicDJ | 2MIMICDJ2 should use the native Os socket path for its 50020 experiment and preserve the 50020 port. | Does native Os.bind actually succeed on the target phone? Hardware test must answer this.
+
+## 2026-09-28 | Physical hardware test reported by user | Denon Prime GO + Android server, app build 1.0.0-debug
+
+- Prime GO at 10.122.26.191 sent the EAAS discovery request ("EAAS" + 0x01 0x00) seven times to the Android server; the server sent seven replies. Evidence class A (direct hardware observation via app diagnostics). Consequence: UDP discovery path is demonstrably reachable in both directions on this test LAN.
+- The discovery replies advertised grpc://10.122.26.146:50010. No TCP/50010 connection, trust request, RPC call, or HTTP/50020 request followed during the observed test window. Evidence class A. Consequence: the current failure is before the library/file-transfer request stage.
+- Android native TCP bind to 50020 failed with EPERM. The same device also rejected 50021 and 50022 while allowing 50019, 50100, and 60000. Evidence class A. Consequence: this is a port-specific restriction/reservation signal, not a generic inability to create TCP listeners. Cause remains to be identified on the device.
+- Current 2MIMICDJ2 code therefore treats process-wide Android Network binding as suspect for inbound service sockets and adds reverse Prime GO port probes plus IPv4 wildcard gRPC listening. Evidence class D for the implementation hypothesis; validation requires another hardware run.
+
+
+## 2026-09-29 | Physical hardware test reported by user | Denon Prime GO + 2MIMICDJ2 build with automatic EAAS fallback
+
+- Prime GO sent 6 EAAS discovery requests and received 6 replies. Evidence class A. The discovery exchange itself remains healthy.
+- The Android device refused native and Java TCP bind on 50020, 50021 and 50022 with EPERM while allowing 50019, 50100 and 60000. Evidence class A. This confirms a port-specific Android restriction on the phone, but the owning component/policy is still unknown.
+- Because 50020 was unavailable, the app fell back to gRPC 50100 + HTTP 50110 and advertised `grpc://10.122.26.146:50100`. Prime GO still produced zero external TCP accepts, zero gRPC connections and zero RPC calls during the test. Evidence class A. Consequence: changing the EAAS advertised gRPC port alone does not advance the Prime GO beyond discovery.
+- The latest implementation therefore adds an independent StageLinQ host path: UDP 51337 discovery announcement, a dynamic TCP directory port, and diagnostic service endpoints. This is motivated by public Prime GO observations showing repeated `DISCOVERER_HOWDY_` discovery on UDP 51337 followed by TCP directory communication. Evidence class D, not proof of Remote Library causality on the current firmware. Open question: does the target Prime GO require StageLinQ host discovery/service-directory registration before it will use the EAAS library endpoint?
+
+
+## 2026-09-29 | Physical hardware test reported by user | 03:04
+
+- EAAS discovery remained healthy: 7 Prime GO requests and 7 replies. Evidence class A.
+- The server advertised `grpc://10.122.26.146:50010`, with HTTP fallback on 50110 because 50020 remains unavailable. There were 0 external TCP accepts, 0 trust messages, 0 RPC calls, and 0 HTTP requests. Evidence class A.
+- StageLinQ host path transmitted 27 discovery datagrams and reported 27 receives, but every observed RX came from the Android phone address `10.122.26.146`, so this is self-reception, not proof that Prime GO received the advertisement. Evidence class A.
+- StageLinQ directory on dynamic port 40829 had 0 accepts and 0 payloads. Evidence class A.
+- Reference implementations announce StageLinQ presence at approximately 1 s intervals; the previous build used 500 ms. Evidence class D. The next build uses 1 s and also sends an explicit 255.255.255.255 fallback broadcast.
+- The StageLinQ token in this test started with `0xF0`. PyStageLinQ documents an MSB restriction for Prime Go service requests. The next build masks the StageLinQ token MSB to 0 as a defensive compatibility measure; this is not evidence that the token caused the current zero-connect result.
+- EAAS identity is now persisted per Android installation instead of regenerated when the service is recreated. This is an A/B experiment motivated by stable device identity semantics; causality for Prime GO connectivity remains unproven.
+
+- 03:16 physical test: StageLinQ had 34 TX and 33 RX, all 33 RX self-generated from local phone addresses; peer RX 0 and directory accepts 0. Next experiment is exact-peer unicast StageLinQ discovery to the Prime GO IPv4 learned from EAAS, avoiding broadcast filtering and multi-interface routing ambiguity. Evidence class A for observation, E for experiment.

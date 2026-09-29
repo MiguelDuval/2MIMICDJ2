@@ -1,0 +1,161 @@
+name: Build
+
+on:
+  push:
+    branches-ignore:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Detect, test, build and package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Android SDK
+        if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
+        run: |
+          set -euo pipefail
+          # Check if Android SDK is pre-installed on ubuntu-latest
+          if [ -d "/usr/lib/android-sdk" ]; then
+            echo "ANDROID_HOME=/usr/lib/android-sdk" >> $GITHUB_ENV
+            echo "ANDROID_SDK_ROOT=/usr/lib/android-sdk" >> $GITHUB_ENV
+            echo "/usr/lib/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
+            echo "/usr/lib/android-sdk/platform-tools" >> $GITHUB_PATH
+            echo "Using pre-installed Android SDK at /usr/lib/android-sdk"
+          elif [ -d "$ANDROID_HOME" ]; then
+            echo "Using existing ANDROID_HOME: $ANDROID_HOME"
+            echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+            echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> $GITHUB_ENV
+          else
+            echo "Android SDK not found, attempting to install minimal SDK..."
+            ANDROID_SDK_ROOT="${{ runner.tool_cache }}/android-sdk"
+            mkdir -p "$ANDROID_SDK_ROOT"
+            cd "$ANDROID_SDK_ROOT"
+            # Download command line tools (use a more recent version)
+            wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip || {
+              echo "Failed to download command line tools"
+              exit 1
+            }
+            unzip -q cmdline-tools.zip -d cmdline-tools
+            mv cmdline-tools/cmdline-tools cmdline-tools/latest
+            rm cmdline-tools.zip
+            # Add to PATH
+            echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> $GITHUB_PATH
+            echo "$ANDROID_SDK_ROOT/platform-tools" >> $GITHUB_PATH
+            # Accept licenses and install platform
+            yes | cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
+            cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools" || {
+              echo "Failed to install Android platform"
+              exit 1
+            }
+            # Set ANDROID_HOME
+            echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+            echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+            echo "Installed Android SDK at $ANDROID_SDK_ROOT"
+          fi
+
+      - name: Set up Gradle
+        if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Set up Go
+        if: hashFiles('**/go.mod') != ''
+        uses: actions/setup-go@v6
+        with:
+          go-version: stable
+          cache: true
+
+      - name: Set up Node
+        if: hashFiles('**/package.json') != ''
+        uses: actions/setup-node@v6
+        with:
+          node-version: 'lts/*'
+          cache: npm
+
+      - name: Gradle diagnostics
+        if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
+        shell: bash
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          echo "=== Gradle Version ==="
+          ./gradlew --version
+          echo ""
+          echo "=== Android SDK Environment ==="
+          echo "ANDROID_HOME=${ANDROID_HOME:-not set}"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-not set}"
+          echo ""
+          echo "=== SDK Directory Contents ==="
+          if [ -d "${ANDROID_HOME:-/usr/lib/android-sdk}" ]; then
+            ls -la "${ANDROID_HOME:-/usr/lib/android-sdk}"
+          else
+            echo "SDK directory not found at ${ANDROID_HOME:-/usr/lib/android-sdk}"
+            echo "Checking common locations:"
+            ls -la /usr/lib/android-sdk 2>/dev/null || echo "Not at /usr/lib/android-sdk"
+            ls -la /opt/android-sdk 2>/dev/null || echo "Not at /opt/android-sdk"
+            ls -la /home/runner/android-sdk 2>/dev/null || echo "Not at /home/runner/android-sdk"
+            ls -la /usr/local/android-sdk 2>/dev/null || echo "Not at /usr/local/android-sdk"
+          fi
+
+      - name: Gradle tasks test
+        if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
+        shell: bash
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+        run: |
+          set -euo pipefail
+          echo "=== Testing Gradle Configuration ==="
+          ./gradlew tasks --all 2>&1 | head -50
+
+      - name: Build project
+        if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
+        shell: bash
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+        run: |
+          set -euo pipefail
+          echo "=== Running Gradle Build ==="
+          ./gradlew test lint assembleDebug --stacktrace --info \
+            -Pandroid.sdk.dir="${ANDROID_HOME:-/usr/lib/android-sdk}" \
+            -Pandroid.home="${ANDROID_HOME:-/usr/lib/android-sdk}"
+
+      - name: Prepare APK artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          mkdir -p ci-artifacts
+          cp "$APK" "ci-artifacts/2MIMICDJ2-debug.apk"
+          ls -lh "ci-artifacts/2MIMICDJ2-debug.apk"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MimicDJ2-APK-${{ github.sha }}
+          path: ci-artifacts/2MIMICDJ2-debug.apk
+          if-no-files-found: error
+          retention-days: 14
