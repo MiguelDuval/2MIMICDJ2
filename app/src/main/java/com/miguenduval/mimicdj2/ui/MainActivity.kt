@@ -29,7 +29,10 @@ import timber.log.Timber
 class MainActivity : AppCompatActivity() {
 
     private val TAG = "MainActivity"
-    private companion object { const val MEDIA_PERMISSION_REQUEST = 4101 }
+    private companion object {
+        const val MEDIA_PERMISSION_REQUEST = 4101
+        const val LOCAL_NETWORK_PERMISSION_REQUEST = 4102
+    }
 
     // UI Components
     private lateinit var tvServerStatus: TextView
@@ -124,14 +127,35 @@ class MainActivity : AppCompatActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == MEDIA_PERMISSION_REQUEST) {
-            val granted = grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED
-            Toast.makeText(
-                this,
-                if (granted) "Music library access granted" else "Music library access denied",
-                Toast.LENGTH_SHORT
-            ).show()
+        when (requestCode) {
+            MEDIA_PERMISSION_REQUEST -> {
+                val granted = grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED
+                Toast.makeText(
+                    this,
+                    if (granted) "Music library access granted" else "Music library access denied",
+                    Toast.LENGTH_SHORT
+                ).show()
+                ensureLocalNetworkPermission()
+            }
+            LOCAL_NETWORK_PERMISSION_REQUEST -> {
+                val granted = grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED
+                Toast.makeText(
+                    this,
+                    if (granted) "Local network access granted" else "Local network access denied",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
         }
+    }
+
+    private fun ensureLocalNetworkPermission(): Boolean {
+        if (android.os.Build.VERSION.SDK_INT < 33) return true
+        val permission = Manifest.permission.NEARBY_WIFI_DEVICES
+        if (checkSelfPermission(permission) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            return true
+        }
+        requestPermissions(arrayOf(permission), LOCAL_NETWORK_PERMISSION_REQUEST)
+        return false
     }
 
     private fun startNetworkMonitoring() {
@@ -171,6 +195,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startServer() {
+        if (!ensureLocalNetworkPermission()) {
+            Snackbar.make(
+                findViewById(android.R.id.content),
+                "Allow Nearby devices / local network access, then press Server again.",
+                Snackbar.LENGTH_LONG
+            ).show()
+            return
+        }
+
         val intent = Intent(this, NetworkServerService::class.java).apply {
             action = NetworkServerService.ACTION_START_SERVER
             putExtra(NetworkServerService.EXTRA_PORT, 50010)
