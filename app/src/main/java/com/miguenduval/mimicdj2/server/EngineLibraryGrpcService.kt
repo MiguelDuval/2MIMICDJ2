@@ -91,7 +91,7 @@ class EngineLibraryGrpcService(
         } else {
             tracks
         }
-        val pageSize = if (request.hasPageSize && request.pageSize > 0) request.pageSize else filtered.size
+        val pageSize = if (request.hasPageSize() && request.pageSize > 0) request.pageSize else filtered.size
         val limited = filtered.take(pageSize)
 
         val response = GetTracksResponse.newBuilder()
