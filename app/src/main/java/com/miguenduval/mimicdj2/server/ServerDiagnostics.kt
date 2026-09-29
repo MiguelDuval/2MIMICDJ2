@@ -40,6 +40,7 @@ class ServerDiagnostics {
     val errors500 = AtomicLong(0)
     val openFileFailures = AtomicLong(0)
     val stageLinqDiscoveryTxCount = AtomicLong(0)
+    val stageLinqDirectedDiscoveryTxCount = AtomicLong(0)
     val stageLinqDiscoveryRxCount = AtomicLong(0)
     val stageLinqDiscoverySelfRxCount = AtomicLong(0)
     val stageLinqDiscoveryPeerRxCount = AtomicLong(0)
@@ -72,8 +73,10 @@ class ServerDiagnostics {
     @Volatile var stageLinqBroadcastTargets: String? = null
     @Volatile var lastStageLinqClientIp: String? = null
     @Volatile var lastStageLinqPeerDiscoveryIp: String? = null
+    @Volatile var lastStageLinqDirectedPeerIp: String? = null
     @Volatile var lastStageLinqDiscoveryRx: Long = 0
     @Volatile var lastStageLinqDiscoveryTx: Long = 0
+    @Volatile var lastStageLinqDirectedDiscoveryTx: Long = 0
     @Volatile var lastStageLinqDiscoveryPayload: ByteArray? = null
     @Volatile var lastStageLinqDirectoryPayload: ByteArray? = null
     @Volatile var lastStageLinqDirectoryTxPayload: ByteArray? = null
@@ -154,6 +157,7 @@ class ServerDiagnostics {
         sb.append("Prime GO high-port scan progress: ${primeGoHighPortScanProgress ?: "not started"}\n\n")
         sb.append("--- StageLinQ ---\n")
         sb.append("UDP 51337 TX: ${stageLinqDiscoveryTxCount.get()} | RX: ${stageLinqDiscoveryRxCount.get()} (self=${stageLinqDiscoverySelfRxCount.get()}, peer=${stageLinqDiscoveryPeerRxCount.get()})\n")
+        sb.append("UDP 51337 direct TX: ${stageLinqDirectedDiscoveryTxCount.get()} | peer=${lastStageLinqDirectedPeerIp ?: "none"}\n")
         sb.append("Directory: ${if (stageLinqDirectoryPort > 0) stageLinqDirectoryPort else "not bound"}\n")
         sb.append("Directory accepts: ${stageLinqDirectoryAccepts.get()} | RX: ${stageLinqDirectoryRxCount.get()} | TX: ${stageLinqDirectoryTxCount.get()}\n")
         sb.append("Service accepts: ${stageLinqServiceAccepts.get()}\n")
