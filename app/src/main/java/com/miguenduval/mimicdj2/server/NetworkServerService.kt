@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
+import android.content.pm.ServiceInfo
 import android.system.Os
 import android.system.OsConstants
 import android.content.Intent
@@ -13,6 +14,7 @@ import android.os.Build
 import android.os.IBinder
 import android.net.wifi.WifiManager
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import com.miguenduval.mimicdj2.BuildConfig
 import com.miguenduval.mimicdj2.network.EaasDiscovery
 import kotlinx.coroutines.CoroutineScope
@@ -148,13 +150,14 @@ class NetworkServerService : Service() {
     private fun doStartServerUnsafe(port: Int, iface: String?) {
         var localServer: Server? = null
         try {
+            // The listeners intentionally bind wildcard/IPv4 sockets.
+            // Discovering the concrete LAN address is only needed for
+            // diagnostics and the advertised discovery endpoint; it must not
+            // prevent the local server from starting.
             val lanIp = if (iface.isNullOrBlank()) {
                 NetworkAddress.currentLanIpv4(applicationContext)
             } else iface
-
-            if (lanIp.isNullOrBlank()) {
-                throw IllegalStateException("No LAN IPv4 address available")
-            }
+            val advertisedHost = lanIp?.takeUnless { it.isBlank() } ?: "0.0.0.0"
 
             // Inbound server sockets must not depend on a process-wide
             // ConnectivityManager binding. The phone can expose the controller
@@ -194,11 +197,13 @@ class NetworkServerService : Service() {
                 serverState = ServerState.RUNNING
             }
 
-            diagnostics.info(TAG, "EAAS gRPC server listening on $lanIp:$port")
-            scope.launch { probeLocalGrpcTcp(lanIp, port) }
+            diagnostics.info(TAG, "EAAS gRPC server listening on $advertisedHost:$port")
+            if (advertisedHost != "0.0.0.0") {
+                scope.launch { probeLocalGrpcTcp(advertisedHost, port) }
+            }
             startHttpServer()
             startEaasDiscoveryListener()
-            updateNotification("EAAS gRPC + HTTP + discovery on $lanIp:$port")
+            updateNotification("EAAS gRPC + HTTP + discovery on $advertisedHost:$port")
         } catch (e: Exception) {
             diagnostics.error(TAG, "Failed to start EAAS gRPC server", e)
             handleStartupFailure(e)
@@ -556,7 +561,16 @@ class NetworkServerService : Service() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()
-        startForeground(NOTIFICATION_ID, notification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ServiceCompat.startForeground(
+                this,
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
     }
 
     private fun createNotificationChannel() {
