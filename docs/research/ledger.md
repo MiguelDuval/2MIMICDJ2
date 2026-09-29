@@ -56,3 +56,11 @@
 - The discovery replies advertised grpc://10.122.26.146:50010. No TCP/50010 connection, trust request, RPC call, or HTTP/50020 request followed during the observed test window. Evidence class A. Consequence: the current failure is before the library/file-transfer request stage.
 - Android native TCP bind to 50020 failed with EPERM. The same device also rejected 50021 and 50022 while allowing 50019, 50100, and 60000. Evidence class A. Consequence: this is a port-specific restriction/reservation signal, not a generic inability to create TCP listeners. Cause remains to be identified on the device.
 - Current 2MIMICDJ2 code therefore treats process-wide Android Network binding as suspect for inbound service sockets and adds reverse Prime GO port probes plus IPv4 wildcard gRPC listening. Evidence class D for the implementation hypothesis; validation requires another hardware run.
+
+
+## 2026-09-29 | Physical hardware test reported by user | Denon Prime GO + 2MIMICDJ2 build with automatic EAAS fallback
+
+- Prime GO sent 6 EAAS discovery requests and received 6 replies. Evidence class A. The discovery exchange itself remains healthy.
+- The Android device refused native and Java TCP bind on 50020, 50021 and 50022 with EPERM while allowing 50019, 50100 and 60000. Evidence class A. This confirms a port-specific Android restriction on the phone, but the owning component/policy is still unknown.
+- Because 50020 was unavailable, the app fell back to gRPC 50100 + HTTP 50110 and advertised `grpc://10.122.26.146:50100`. Prime GO still produced zero external TCP accepts, zero gRPC connections and zero RPC calls during the test. Evidence class A. Consequence: changing the EAAS advertised gRPC port alone does not advance the Prime GO beyond discovery.
+- The latest implementation therefore adds an independent StageLinQ host path: UDP 51337 discovery announcement, a dynamic TCP directory port, and diagnostic service endpoints. This is motivated by public Prime GO observations showing repeated `DISCOVERER_HOWDY_` discovery on UDP 51337 followed by TCP directory communication. Evidence class D, not proof of Remote Library causality on the current firmware. Open question: does the target Prime GO require StageLinQ host discovery/service-directory registration before it will use the EAAS library endpoint?
