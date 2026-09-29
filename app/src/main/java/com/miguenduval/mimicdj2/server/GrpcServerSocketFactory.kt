@@ -15,7 +15,7 @@ import javax.net.ServerSocketFactory
  */
 class GrpcServerSocketFactory(
     private val diagnostics: ServerDiagnostics,
-    private val bindAddress: String
+    private val bindAddress: String = "0.0.0.0"
 ) : ServerSocketFactory() {
     override fun createServerSocket(): ServerSocket = LoggingServerSocket()
 
