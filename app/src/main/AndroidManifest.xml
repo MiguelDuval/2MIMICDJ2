@@ -18,7 +18,6 @@
     <!-- Foreground service for long-running network server -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Wake lock to keep CPU alive for network operations -->
@@ -59,7 +58,7 @@
         <service
             android:name=".server.NetworkServerService"
             android:exported="false"
-            android:foregroundServiceType="dataSync|connectedDevice"
+            android:foregroundServiceType="dataSync"
             android:stopWithTask="false" />
 
         <!-- Network callback receiver for connectivity changes -->
