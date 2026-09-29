@@ -196,7 +196,7 @@ class NetworkServerService : Service() {
 
                 synchronized(lifecycleLock) {
                     if (serverState != ServerState.STARTING) {
-                        try { candidateGrpc.shutdownNow() } catch (_: Exception) {}
+                        try { candidateGrpc?.shutdownNow() } catch (_: Exception) {}
                         runCatching { Os.close(candidateHttpFd) }
                         diagnostics.warn(TAG, "Discarding late server start; state=$serverState")
                         return
