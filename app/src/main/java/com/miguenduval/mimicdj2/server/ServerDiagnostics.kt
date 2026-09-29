@@ -39,6 +39,12 @@ class ServerDiagnostics {
     val errors416 = AtomicLong(0)
     val errors500 = AtomicLong(0)
     val openFileFailures = AtomicLong(0)
+    val stageLinqDiscoveryTxCount = AtomicLong(0)
+    val stageLinqDiscoveryRxCount = AtomicLong(0)
+    val stageLinqDirectoryAccepts = AtomicLong(0)
+    val stageLinqDirectoryRxCount = AtomicLong(0)
+    val stageLinqDirectoryTxCount = AtomicLong(0)
+    val stageLinqServiceAccepts = AtomicLong(0)
 
     // Last timestamps
     var lastDiscoveryRx: Long = 0
@@ -60,6 +66,15 @@ class ServerDiagnostics {
     @Volatile var primeGo50010Fingerprint: String? = null
     @Volatile var primeGoHighPortScan: String? = null
     @Volatile var primeGoHighPortScanProgress: String? = null
+    @Volatile var stageLinqDirectoryPort: Int = 0
+    @Volatile var stageLinqBroadcastTargets: String? = null
+    @Volatile var lastStageLinqClientIp: String? = null
+    @Volatile var lastStageLinqDiscoveryRx: Long = 0
+    @Volatile var lastStageLinqDiscoveryTx: Long = 0
+    @Volatile var lastStageLinqDiscoveryPayload: ByteArray? = null
+    @Volatile var lastStageLinqDirectoryPayload: ByteArray? = null
+    @Volatile var lastStageLinqDirectoryTxPayload: ByteArray? = null
+    @Volatile var lastStageLinqServicePayload: ByteArray? = null
 
     // Last payloads for inspection
     var lastDiscoveryRxPayload: ByteArray? = null
@@ -134,6 +149,16 @@ class ServerDiagnostics {
         sb.append("Prime GO 50010 fingerprint: ${primeGo50010Fingerprint ?: "not probed"}\n")
         sb.append("Prime GO high-port scan: ${primeGoHighPortScan ?: "not started"}\n")
         sb.append("Prime GO high-port scan progress: ${primeGoHighPortScanProgress ?: "not started"}\n\n")
+        sb.append("--- StageLinQ ---\n")
+        sb.append("UDP 51337 TX: ${stageLinqDiscoveryTxCount.get()} | RX: ${stageLinqDiscoveryRxCount.get()}\n")
+        sb.append("Directory: ${if (stageLinqDirectoryPort > 0) stageLinqDirectoryPort else "not bound"}\n")
+        sb.append("Directory accepts: ${stageLinqDirectoryAccepts.get()} | RX: ${stageLinqDirectoryRxCount.get()} | TX: ${stageLinqDirectoryTxCount.get()}\n")
+        sb.append("Service accepts: ${stageLinqServiceAccepts.get()}\n")
+        sb.append("Last StageLinQ client IP: ${lastStageLinqClientIp ?: "none"}\n")
+        sb.append("Last discovery payload: ${lastStageLinqDiscoveryPayload?.let { bytesToHex(it) } ?: "none"}\n")
+        sb.append("Last directory RX: ${lastStageLinqDirectoryPayload?.let { bytesToHex(it) } ?: "none"}\n")
+        sb.append("Last directory TX: ${lastStageLinqDirectoryTxPayload?.let { bytesToHex(it) } ?: "none"}\n")
+        sb.append("Last service RX: ${lastStageLinqServicePayload?.let { bytesToHex(it) } ?: "none"}\n\n")
 
         sb.append("--- File Server ---\n")
         sb.append("Requests: ${fileRequests.get()}\n")
