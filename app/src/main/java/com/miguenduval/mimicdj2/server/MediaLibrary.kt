@@ -186,7 +186,7 @@ private const val HEX_DIGITS = "0123456789ABCDEF"
  * but is kept platform-independent so JVM unit tests exercise the real wire
  * encoding instead of the Android local-test stub.
  */
-private fun encodeHttpPathComponent(value: String): String {
+internal fun encodeHttpPathComponent(value: String): String {
     val bytes = value.toByteArray(Charsets.UTF_8)
     val out = StringBuilder(bytes.size)
     bytes.forEach { byte ->
