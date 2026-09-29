@@ -1,6 +1,7 @@
 package com.miguenduval.mimicdj2.server
 
 import android.net.Uri
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -23,10 +24,10 @@ class MediaLibraryTrackUrlTest {
         )
 
         val path = track.httpPath()
+        assertEquals(
+            "/download/%3C%2Fstorage%2Femulated%2F0%2FMusic%2F%D0%9F%D0%BE%D0%B4%D0%BE%D0%B6%D0%B4%D1%91%D0%BC.flac%3E",
+            path
+        )
         assertTrue(path.startsWith("/download/"))
-        assertTrue(path.contains("%3C"))
-        assertTrue(path.contains("%3E"))
-        assertTrue(path.contains("%2F"))
-        assertTrue(path.contains("%D0"))
     }
 }
