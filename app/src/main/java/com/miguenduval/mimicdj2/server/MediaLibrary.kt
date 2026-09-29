@@ -31,7 +31,7 @@ class MediaLibrary(context: Context) {
         val dateAddedSeconds: Long,
         val mimeType: String
     ) {
-        fun httpPath(): String = "/download/" + Uri.encode("<$pathKey>")
+        fun httpPath(): String = "/download/" + encodeHttpPathComponent("<$pathKey>")
 
         fun httpUrl(host: String, port: Int = HTTP_PORT): String =
             "http://$host:$port" + httpPath()
@@ -175,6 +175,37 @@ class MediaLibrary(context: Context) {
         MimeTypeMap.getSingleton()
             .getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase(Locale.US))
             ?: "application/octet-stream"
+}
+
+private const val HEX_DIGITS = "0123456789ABCDEF"
+
+/**
+ * Percent-encode one HTTP path component using UTF-8.
+ *
+ * This deliberately mirrors android.net.Uri.encode()'s documented allowlist,
+ * but is kept platform-independent so JVM unit tests exercise the real wire
+ * encoding instead of the Android local-test stub.
+ */
+private fun encodeHttpPathComponent(value: String): String {
+    val bytes = value.toByteArray(Charsets.UTF_8)
+    val out = StringBuilder(bytes.size)
+    bytes.forEach { byte ->
+        val c = byte.toInt() and 0xFF
+        val allowed =
+            (c in 'A'.code..'Z'.code) ||
+            (c in 'a'.code..'z'.code) ||
+            (c in '0'.code..'9'.code) ||
+            c == '_'.code || c == '-'.code || c == '!'.code || c == '.'.code ||
+            c == '~'.code || c == '\''.code || c == '('.code || c == ')'.code || c == '*'.code
+        if (allowed) {
+            out.append(c.toChar())
+        } else {
+            out.append('%')
+            out.append(HEX_DIGITS[c ushr 4])
+            out.append(HEX_DIGITS[c and 0x0F])
+        }
+    }
+    return out.toString()
 }
 
 private fun Cursor.getStringOrNull(index: Int): String? =
