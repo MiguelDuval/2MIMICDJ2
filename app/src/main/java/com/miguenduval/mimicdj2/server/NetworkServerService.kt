@@ -611,6 +611,8 @@ class NetworkServerService : Service() {
             serverState = ServerState.STOPPING
         }
         diagnostics.info(TAG, "Stopping server")
+        try { stageLinqHostService?.stop() } catch (e: Exception) { diagnostics.error(TAG, "Error stopping StageLinQ", e) }
+        stageLinqHostService = null
         try { grpcServer?.shutdownNow() } catch (e: Exception) { diagnostics.error(TAG, "Error shutting down gRPC", e) }
         grpcServer = null
         try {
@@ -658,6 +660,8 @@ class NetworkServerService : Service() {
 
     override fun onDestroy() {
         diagnostics.info(TAG, "Service destroyed")
+        try { stageLinqHostService?.stop() } catch (_: Exception) {}
+        stageLinqHostService = null
         try { grpcServer?.shutdownNow() } catch (_: Exception) {}
         try { httpServerFd?.let { Os.close(it) } } catch (_: Exception) {}
         try { udpListener?.close() } catch (_: Exception) {}
