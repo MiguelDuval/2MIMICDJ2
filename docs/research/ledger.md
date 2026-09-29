@@ -75,3 +75,5 @@
 - Reference implementations announce StageLinQ presence at approximately 1 s intervals; the previous build used 500 ms. Evidence class D. The next build uses 1 s and also sends an explicit 255.255.255.255 fallback broadcast.
 - The StageLinQ token in this test started with `0xF0`. PyStageLinQ documents an MSB restriction for Prime Go service requests. The next build masks the StageLinQ token MSB to 0 as a defensive compatibility measure; this is not evidence that the token caused the current zero-connect result.
 - EAAS identity is now persisted per Android installation instead of regenerated when the service is recreated. This is an A/B experiment motivated by stable device identity semantics; causality for Prime GO connectivity remains unproven.
+
+- 03:16 physical test: StageLinQ had 34 TX and 33 RX, all 33 RX self-generated from local phone addresses; peer RX 0 and directory accepts 0. Next experiment is exact-peer unicast StageLinQ discovery to the Prime GO IPv4 learned from EAAS, avoiding broadcast filtering and multi-interface routing ambiguity. Evidence class A for observation, E for experiment.
