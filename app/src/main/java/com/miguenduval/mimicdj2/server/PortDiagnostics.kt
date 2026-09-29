@@ -30,6 +30,8 @@ object PortDiagnostics {
 
         val text = buildString {
             append("Java 50019 wildcard: ").append(probeJava("0.0.0.0", 50019)).append('\n')
+            append("Java 50010 LAN ").append(lanIpv4 ?: "<none>").append(": ")
+                .append(lanIpv4?.let { probeJava(it, 50010) } ?: "no LAN IPv4 supplied").append('\n')
             append("Java 50020 wildcard: ").append(probeJava("0.0.0.0", TARGET_PORT)).append('\n')
             append("Java 50021 wildcard: ").append(probeJava("0.0.0.0", 50021)).append('\n')
             append("Java 50022 wildcard: ").append(probeJava("0.0.0.0", 50022)).append('\n')
