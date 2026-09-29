@@ -64,3 +64,14 @@
 - The Android device refused native and Java TCP bind on 50020, 50021 and 50022 with EPERM while allowing 50019, 50100 and 60000. Evidence class A. This confirms a port-specific Android restriction on the phone, but the owning component/policy is still unknown.
 - Because 50020 was unavailable, the app fell back to gRPC 50100 + HTTP 50110 and advertised `grpc://10.122.26.146:50100`. Prime GO still produced zero external TCP accepts, zero gRPC connections and zero RPC calls during the test. Evidence class A. Consequence: changing the EAAS advertised gRPC port alone does not advance the Prime GO beyond discovery.
 - The latest implementation therefore adds an independent StageLinQ host path: UDP 51337 discovery announcement, a dynamic TCP directory port, and diagnostic service endpoints. This is motivated by public Prime GO observations showing repeated `DISCOVERER_HOWDY_` discovery on UDP 51337 followed by TCP directory communication. Evidence class D, not proof of Remote Library causality on the current firmware. Open question: does the target Prime GO require StageLinQ host discovery/service-directory registration before it will use the EAAS library endpoint?
+
+
+## 2026-09-29 | Physical hardware test reported by user | 03:04
+
+- EAAS discovery remained healthy: 7 Prime GO requests and 7 replies. Evidence class A.
+- The server advertised `grpc://10.122.26.146:50010`, with HTTP fallback on 50110 because 50020 remains unavailable. There were 0 external TCP accepts, 0 trust messages, 0 RPC calls, and 0 HTTP requests. Evidence class A.
+- StageLinQ host path transmitted 27 discovery datagrams and reported 27 receives, but every observed RX came from the Android phone address `10.122.26.146`, so this is self-reception, not proof that Prime GO received the advertisement. Evidence class A.
+- StageLinQ directory on dynamic port 40829 had 0 accepts and 0 payloads. Evidence class A.
+- Reference implementations announce StageLinQ presence at approximately 1 s intervals; the previous build used 500 ms. Evidence class D. The next build uses 1 s and also sends an explicit 255.255.255.255 fallback broadcast.
+- The StageLinQ token in this test started with `0xF0`. PyStageLinQ documents an MSB restriction for Prime Go service requests. The next build masks the StageLinQ token MSB to 0 as a defensive compatibility measure; this is not evidence that the token caused the current zero-connect result.
+- EAAS identity is now persisted per Android installation instead of regenerated when the service is recreated. This is an A/B experiment motivated by stable device identity semantics; causality for Prime GO connectivity remains unproven.
