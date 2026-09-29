@@ -96,6 +96,27 @@ class StageLinqHostService(
         }
     }
 
+    /** Send a discovery frame directly to a known Engine OS peer. */
+    fun announceToPeer(peerIp: String) {
+        if (!running.get() || peerIp.isBlank()) return
+        val payload = buildDiscovery(token, SOURCE, ACTION_HOWDY, SOFTWARE_NAME, SOFTWARE_VERSION, directoryPort)
+        runCatching {
+            DatagramSocket().use { socket ->
+                socket.broadcast = true
+                val address = java.net.InetAddress.getByName(peerIp)
+                repeat(3) {
+                    socket.send(DatagramPacket(payload, payload.size, address, DISCOVERY_PORT))
+                    diagnostics.stageLinqDirectedDiscoveryTxCount.incrementAndGet()
+                    diagnostics.lastStageLinqDirectedDiscoveryTx = System.currentTimeMillis()
+                    diagnostics.lastStageLinqDirectedPeerIp = peerIp
+                }
+            }
+            diagnostics.info("StageLinQ", "Direct discovery TX to " + peerIp + ":" + DISCOVERY_PORT + " (3 probes)")
+        }.onFailure { error ->
+            diagnostics.error("StageLinQ", "Direct discovery to " + peerIp + ":" + DISCOVERY_PORT + " failed", error)
+        }
+    }
+
     fun stop() {
         if (!running.compareAndSet(true, false)) return
         runCatching { scope?.cancel() }
