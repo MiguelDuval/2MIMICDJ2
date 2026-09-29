@@ -52,6 +52,7 @@ class MainActivity : AppCompatActivity() {
     private var serverService: NetworkServerService? = null
     private var isBound = false
     private var periodicUiJob: Job? = null
+    private var pendingServerStartAfterLocalNetworkPermission = false
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, service: IBinder) {
@@ -144,6 +145,12 @@ class MainActivity : AppCompatActivity() {
                     if (granted) "Local network access granted" else "Local network access denied",
                     Toast.LENGTH_SHORT
                 ).show()
+                if (granted && pendingServerStartAfterLocalNetworkPermission) {
+                    pendingServerStartAfterLocalNetworkPermission = false
+                    startServer()
+                } else if (!granted) {
+                    pendingServerStartAfterLocalNetworkPermission = false
+                }
             }
         }
     }
@@ -151,7 +158,9 @@ class MainActivity : AppCompatActivity() {
     private fun ensureLocalNetworkPermission(): Boolean {
         if (android.os.Build.VERSION.SDK_INT < 33) return true
         val permission = Manifest.permission.NEARBY_WIFI_DEVICES
-        if (checkSelfPermission(permission) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+        val granted = checkSelfPermission(permission) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        Timber.tag(TAG).d("Local network / Nearby devices permission granted=$granted")
+        if (granted) {
             return true
         }
         requestPermissions(arrayOf(permission), LOCAL_NETWORK_PERMISSION_REQUEST)
@@ -196,13 +205,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun startServer() {
         if (!ensureLocalNetworkPermission()) {
+            pendingServerStartAfterLocalNetworkPermission = true
             Snackbar.make(
                 findViewById(android.R.id.content),
-                "Allow Nearby devices / local network access, then press Server again.",
+                "Allow Nearby devices / local network access. Server will start automatically.",
                 Snackbar.LENGTH_LONG
             ).show()
             return
         }
+        pendingServerStartAfterLocalNetworkPermission = false
 
         val intent = Intent(this, NetworkServerService::class.java).apply {
             action = NetworkServerService.ACTION_START_SERVER
