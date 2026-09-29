@@ -43,6 +43,14 @@ object EaasDiscovery {
 
     fun newToken(): ByteArray = ByteArray(16).also(secureRandom::nextBytes)
 
+    fun tokenToHex(token: ByteArray): String =
+        token.joinToString(separator = "") { "%02x".format(it) }
+
+    fun tokenFromHex(value: String): ByteArray? = runCatching {
+        if (value.length != 32 || value.any { it !in "0123456789abcdefABCDEF" }) return null
+        ByteArray(16) { index -> value.substring(index * 2, index * 2 + 2).toInt(16).toByte() }
+    }.getOrNull()
+
     fun buildResponse(
         token: ByteArray,
         hostname: String,
