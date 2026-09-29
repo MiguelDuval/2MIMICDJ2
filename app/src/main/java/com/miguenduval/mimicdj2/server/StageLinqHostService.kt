@@ -33,7 +33,7 @@ class StageLinqHostService(
 ) {
     companion object {
         const val DISCOVERY_PORT = 51337
-        private const val ANNOUNCE_INTERVAL_MS = 500L
+        private const val ANNOUNCE_INTERVAL_MS = 1000L
         private const val SOURCE = "Mimic DJ"
         private const val ACTION_HOWDY = "DISCOVERER_HOWDY_"
         private const val SOFTWARE_NAME = "Mimic DJ"
@@ -46,7 +46,11 @@ class StageLinqHostService(
     private var directoryServer: ServerSocket? = null
     private val serviceServers = mutableListOf<Pair<String, ServerSocket>>()
     @Volatile private var directoryPort = 0
-    private val token = ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }
+    private val token = ByteArray(16).also {
+        java.security.SecureRandom().nextBytes(it)
+        // PyStageLinQ notes an MSB restriction for Prime Go service requests.
+        it[0] = (it[0].toInt() and 0x7f).toByte()
+    }
 
     fun start() {
         if (!running.compareAndSet(false, true)) return
@@ -130,10 +134,18 @@ class StageLinqHostService(
                         diagnostics.stageLinqDiscoveryRxCount.incrementAndGet()
                         diagnostics.lastStageLinqDiscoveryRx = System.currentTimeMillis()
                         diagnostics.lastStageLinqDiscoveryPayload = payload
-                        diagnostics.lastStageLinqClientIp = remote?.address?.hostAddress
+                        val remoteIp = remote?.address?.hostAddress
+                        val self = remoteIp?.let { isLocalAddress(it) } == true
+                        if (self) {
+                            diagnostics.stageLinqDiscoverySelfRxCount.incrementAndGet()
+                        } else {
+                            diagnostics.stageLinqDiscoveryPeerRxCount.incrementAndGet()
+                            diagnostics.lastStageLinqPeerDiscoveryIp = remoteIp
+                        }
+                        diagnostics.lastStageLinqClientIp = remoteIp
                         diagnostics.info(
                             "StageLinQ",
-                            "StageLinQ discovery RX from " + remote + ": " + bytesToHex(payload)
+                            "StageLinQ discovery RX (" + (if (self) "self" else "PEER") + ") from " + remote + ": " + bytesToHex(payload)
                         )
                     }
                 } catch (_: java.net.SocketTimeoutException) {
@@ -229,11 +241,12 @@ class StageLinqHostService(
         val payload = buildDiscovery(token, SOURCE, ACTION_HOWDY, SOFTWARE_NAME, SOFTWARE_VERSION, directoryPort)
         val targets = broadcastTargets()
         if (targets.isEmpty()) return
+        val expandedTargets = (targets + "255.255.255.255").distinct()
 
         runCatching {
             DatagramSocket().use { socket ->
                 socket.broadcast = true
-                for (target in targets) {
+                for (target in expandedTargets) {
                     socket.send(
                         DatagramPacket(
                             payload,
@@ -284,6 +297,14 @@ class StageLinqHostService(
         out.write(ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN).putInt(data.size).array())
         out.write(data)
     }
+
+    private fun isLocalAddress(address: String): Boolean =
+        runCatching {
+            java.net.NetworkInterface.getNetworkInterfaces()?.toList()
+                ?.flatMap { it.inetAddresses.toList() }
+                ?.any { it.hostAddress == address }
+                ?: false
+        }.getOrDefault(false)
 
     private fun broadcastTargets(): List<String> {
         val interfaces = java.net.NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
