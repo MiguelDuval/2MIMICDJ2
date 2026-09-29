@@ -144,125 +144,152 @@ class NetworkServerService : Service() {
     }
 
     private fun doStartServerUnsafe(port: Int, iface: String?) {
-        var localServer: Server? = null
-        try {
-            val lanIp = if (iface.isNullOrBlank()) {
-                NetworkAddress.currentLanIpv4(applicationContext)
-            } else iface
+        val lanIp = if (iface.isNullOrBlank()) {
+            NetworkAddress.currentLanIpv4(applicationContext)
+        } else iface
 
-            if (lanIp.isNullOrBlank()) {
-                throw IllegalStateException("No LAN IPv4 address available")
-            }
-
-            // Inbound server sockets must not depend on a process-wide
-            // ConnectivityManager binding. The phone can expose the controller
-            // LAN as a local/Wi-Fi network whose routing semantics differ from
-            // the process default. The gRPC listener therefore uses an explicit
-            // IPv4 wildcard ServerSocketFactory, while outbound probes select
-            // the LAN network explicitly.
-            diagnostics.info(TAG, "Android process network binding skipped for inbound server")
-            localServer = OkHttpServerBuilder
-                .forPort(
-                    port,
-                    InsecureServerCredentials.create()
-                )
-                .socketFactory(GrpcServerSocketFactory(diagnostics))
-                .executor(executor)
-                .addService(NetworkTrustGrpcService(diagnostics))
-                .addService(EngineLibraryGrpcService())
-                .addService(MimicEngineSyncService())
-                .intercept(RpcDiagnosticsInterceptor(diagnostics))
-                .addTransportFilter(GrpcTransportDiagnosticsFilter(diagnostics))
-                .build()
-                .start()
-
-            synchronized(lifecycleLock) {
-                if (serverState != ServerState.STARTING) {
-                    try { localServer.shutdownNow() } catch (_: Exception) {}
-                    diagnostics.warn(TAG, "Discarding late server start; state=$serverState")
-                    return
-                }
-                grpcServer = localServer
-                boundPort = port
-                boundInterface = lanIp
-                diagnostics.serverGrpcPort = port
-                serverState = ServerState.RUNNING
-            }
-
-            diagnostics.info(TAG, "EAAS gRPC server listening on $lanIp:$port")
-            scope.launch { probeLocalGrpcTcp(lanIp, port) }
-            // EAAS standard port pair: gRPC 50010 + HTTP 50020.
-            // The HTTP endpoint is part of the Engine Remote Library contract,
-            // so do not move it to an alternate port during normal operation.
-            val httpPort = port + 10
-            startHttpServer(httpPort)
-            startEaasDiscoveryListener()
-            updateNotification("EAAS gRPC + HTTP + discovery on $lanIp:$port")
-        } catch (e: Exception) {
-            diagnostics.error(TAG, "Failed to start EAAS gRPC server", e)
-            handleStartupFailure(e)
+        if (lanIp.isNullOrBlank()) {
+            throw IllegalStateException("No LAN IPv4 address available")
         }
-    }
-    private fun startHttpServer(httpPort: Int) {
-        scope.launch {
-            try {
-                // The first Mimic DJ established that 50020 can reject the Java
-                // ServerSocket path with EPERM on Android. Use the native Android
-                // socket API directly as the primary EAAS HTTP listener.
-                val fd = Os.socket(
-                    OsConstants.AF_INET,
-                    OsConstants.SOCK_STREAM,
-                    OsConstants.IPPROTO_TCP
-                )
 
-                try {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        Os.setsockoptInt(
-                            fd,
-                            OsConstants.SOL_SOCKET,
-                            OsConstants.SO_REUSEADDR,
-                            1
-                        )
+        // Inbound server sockets must not depend on a process-wide
+        // ConnectivityManager binding. The phone can expose the controller
+        // LAN as a local/Wi-Fi network whose routing semantics differ from
+        // the process default. The gRPC listener therefore uses an explicit
+        // IPv4 wildcard ServerSocketFactory, while outbound probes select
+        // the LAN network explicitly.
+        diagnostics.info(TAG, "Android process network binding skipped for inbound server")
+
+        // EAAS defines HTTP as the gRPC+10 endpoint. Try the documented
+        // 50010/50020 pair first, then a fully consistent high-port pair if
+        // Android refuses the legacy HTTP port. The fallback is advertised
+        // through its gRPC port, so the controller derives HTTP 50110 itself.
+        val candidates = if (port == 50010) {
+            listOf(50010 to 50020, 50100 to 50110)
+        } else {
+            listOf(port to (port + 10))
+        }
+
+        var lastFailure: Throwable? = null
+
+        for ((grpcPort, httpPort) in candidates) {
+            var candidateGrpc: Server? = null
+            try {
+                diagnostics.info(TAG, "Trying EAAS endpoint pair gRPC=$grpcPort HTTP=$httpPort")
+
+                candidateGrpc = OkHttpServerBuilder
+                    .forPort(
+                        grpcPort,
+                        InsecureServerCredentials.create()
+                    )
+                    .socketFactory(GrpcServerSocketFactory(diagnostics))
+                    .executor(executor)
+                    .addService(NetworkTrustGrpcService(diagnostics))
+                    .addService(EngineLibraryGrpcService())
+                    .addService(MimicEngineSyncService())
+                    .intercept(RpcDiagnosticsInterceptor(diagnostics))
+                    .addTransportFilter(GrpcTransportDiagnosticsFilter(diagnostics))
+                    .build()
+                    .start()
+
+                val candidateHttpFd = bindHttpServer(httpPort)
+
+                synchronized(lifecycleLock) {
+                    if (serverState != ServerState.STARTING) {
+                        try { candidateGrpc.shutdownNow() } catch (_: Exception) {}
+                        runCatching { Os.close(candidateHttpFd) }
+                        diagnostics.warn(TAG, "Discarding late server start; state=$serverState")
+                        return
                     }
-                    // Do not bind this descriptor to a ConnectivityManager Network.
-                    // The old Mimic branch removed that step because it could break
-                    // ingress on local/hotspot interfaces.
-                    Os.bind(fd, InetAddress.getByName("0.0.0.0"), httpPort)
-                    Os.listen(fd, 64)
-                } catch (t: Throwable) {
-                    runCatching { Os.close(fd) }
-                    throw IllegalStateException(
-                        "Native HTTP $httpPort bind failed: " +
-                            t.javaClass.simpleName + ": " + (t.message ?: "no message"),
-                        t
+
+                    grpcServer = candidateGrpc
+                    httpServerFd = candidateHttpFd
+                    boundPort = grpcPort
+                    boundInterface = lanIp
+                    httpBoundPort = httpPort
+                    httpBindError = null
+                    diagnostics.serverGrpcPort = grpcPort
+                    diagnostics.httpServerPort = httpPort
+                    diagnostics.httpServerBindError = null
+                    serverState = ServerState.RUNNING
+                }
+
+                if (grpcPort != 50010) {
+                    diagnostics.warn(
+                        TAG,
+                        "EAAS legacy HTTP port 50020 unavailable; using fallback gRPC=$grpcPort HTTP=$httpPort"
                     )
                 }
 
-                httpServerFd = fd
-                httpBoundPort = httpPort
-                httpBindError = null
-                diagnostics.httpServerPort = httpPort
-                diagnostics.httpServerBindError = null
+                diagnostics.info(TAG, "EAAS gRPC server listening on $lanIp:$grpcPort")
                 diagnostics.info(TAG, "EAAS HTTP native server listening on 0.0.0.0:$httpPort")
+                scope.launch { probeLocalGrpcTcp(lanIp, grpcPort) }
+                startHttpAcceptLoop(candidateHttpFd)
+                startEaasDiscoveryListener()
+                updateNotification("EAAS gRPC + HTTP + discovery on $lanIp:$grpcPort")
+                return
+            } catch (t: Throwable) {
+                lastFailure = t
+                diagnostics.error(
+                    TAG,
+                    "EAAS endpoint pair gRPC=$grpcPort HTTP=$httpPort failed",
+                    t
+                )
+                runCatching { candidateGrpc?.shutdownNow() }
 
-                while (httpServerFd != null) {
-                    try {
-                        val clientFd = Os.accept(fd, null)
-                        executor.execute { handleHttpClient(clientFd) }
-                    } catch (t: Throwable) {
-                        if (httpServerFd != null) {
-                            diagnostics.error(TAG, "HTTP native accept error", t)
-                        }
+                if (httpPort == 50020) {
+                    diagnoseTcpBindFailure()
+                }
+            }
+        }
+
+        throw lastFailure ?: IllegalStateException("No usable EAAS endpoint pair")
+    }
+
+    private fun bindHttpServer(httpPort: Int): FileDescriptor {
+        val fd = Os.socket(
+            OsConstants.AF_INET,
+            OsConstants.SOCK_STREAM,
+            OsConstants.IPPROTO_TCP
+        )
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Os.setsockoptInt(
+                    fd,
+                    OsConstants.SOL_SOCKET,
+                    OsConstants.SO_REUSEADDR,
+                    1
+                )
+            }
+
+            // Do not bind this descriptor to a ConnectivityManager Network.
+            // The old Mimic branch removed that step because it could break
+            // ingress on local/hotspot interfaces.
+            Os.bind(fd, InetAddress.getByName("0.0.0.0"), httpPort)
+            Os.listen(fd, 64)
+            return fd
+        } catch (t: Throwable) {
+            runCatching { Os.close(fd) }
+            throw IllegalStateException(
+                "Native HTTP $httpPort bind failed: " +
+                    t.javaClass.simpleName + ": " + (t.message ?: "no message"),
+                t
+            )
+        }
+    }
+
+    private fun startHttpAcceptLoop(fd: FileDescriptor) {
+        scope.launch {
+            while (httpServerFd === fd) {
+                try {
+                    val clientFd = Os.accept(fd, null)
+                    executor.execute { handleHttpClient(clientFd) }
+                } catch (t: Throwable) {
+                    if (httpServerFd === fd) {
+                        diagnostics.error(TAG, "HTTP native accept error", t)
                     }
                 }
-            } catch (e: Exception) {
-                if (httpBindError == null) {
-                    httpBindError = e.javaClass.simpleName + ": " + (e.message ?: "no message")
-                }
-                diagnostics.httpServerPort = 0
-                diagnostics.httpServerBindError = httpBindError
-                diagnostics.error(TAG, "Failed to start native EAAS HTTP server on $httpPort", e)
-                diagnoseTcpBindFailure()
             }
         }
     }
