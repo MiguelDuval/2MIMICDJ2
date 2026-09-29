@@ -38,7 +38,6 @@ object PortDiagnostics {
 
             append("Native 50020 wildcard: ").append(probeNative("0.0.0.0", TARGET_PORT, false)).append('\n')
             append("Native 50020 wildcard reuseport: ").append(probeNative("0.0.0.0", TARGET_PORT, true)).append('\n')
-            append("Native 50020 wildcard reuseport numeric15: ").append(probeNativeNumericReusePort("0.0.0.0", TARGET_PORT)).append('\n')
             append("Native 50021 wildcard: ").append(probeNative("0.0.0.0", 50021, false)).append('\n')
 
             if (!lanIpv4.isNullOrBlank()) {
