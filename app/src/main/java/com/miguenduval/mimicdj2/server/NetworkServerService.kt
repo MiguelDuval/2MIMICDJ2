@@ -520,6 +520,12 @@ class NetworkServerService : Service() {
                             diagnostics.lastDiscoveryTxPayload = response
                             diagnostics.info(TAG, "EAAS discovery TX to ${it.address.hostAddress}:${it.port}: ${bytesToHex(response)}")
                         }
+                        sender?.address?.hostAddress?.let { peerIp ->
+                            // The peer address is already proven by EAAS discovery.
+                            // Unicast a StageLinQ discovery frame to bypass broadcast filtering.
+                            stageLinqHostService?.announceToPeer(peerIp)
+                            diagnostics.info(TAG, "Direct StageLinQ discovery sent to " + peerIp)
+                        }
                     } catch (_: java.net.SocketTimeoutException) {
                         // Periodic wake-up lets coroutine observe service shutdown.
                     } catch (e: Exception) {
