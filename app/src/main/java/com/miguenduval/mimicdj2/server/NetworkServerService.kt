@@ -279,6 +279,20 @@ class NetworkServerService : Service() {
                 )
             }
 
+            // Some Android vendor stacks expose EAAS HTTP/50020 as a port
+            // that is denied unless the listener opts into SO_REUSEPORT.
+            // Linux/Android uses numeric socket option 15 for SO_REUSEPORT.
+            // Treat this as a compatibility experiment only; if it is rejected,
+            // the existing 50020 bind failure still falls back to HTTP/50110.
+            if (httpPort == 50020) {
+                runCatching {
+                    Os.setsockoptInt(fd, OsConstants.SOL_SOCKET, 15, 1)
+                    diagnostics.info(TAG, "HTTP 50020 SO_REUSEPORT=enabled")
+                }.onFailure {
+                    diagnostics.warn(TAG, "HTTP 50020 SO_REUSEPORT unavailable: " + it.javaClass.simpleName)
+                }
+            }
+
             // Do not bind this descriptor to a ConnectivityManager Network.
             // The old Mimic branch removed that step because it could break
             // ingress on local/hotspot interfaces.
