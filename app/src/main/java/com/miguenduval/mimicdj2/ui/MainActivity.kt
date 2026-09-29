@@ -277,7 +277,8 @@ class MainActivity : AppCompatActivity() {
 
             tvSessionInfo.text = "Raw TCP accepts: ${diag.rawTcpAccepts.get()}\ngRPC connections: ${diag.connectionsOpened.get()}\nTrust Msgs: ${diag.trustMessages.get()}\nRPC Calls: ${diag.rpcCount.get()}\nMethods: ${diag.observedRpcMethods.joinToString(", ") { if (it.isEmpty()) "none" else it }}\nPrime GO TCP/50010: ${diag.primeGoPort50010 ?: "not probed"}\nPrime GO TCP/50020: ${diag.primeGoPort50020 ?: "not probed"}\nPrime GO TCP/50021: ${diag.primeGoPort50021 ?: "not probed"}\nPrime GO high ports: ${diag.primeGoHighPortScan ?: "not finished"}\nScan progress: ${diag.primeGoHighPortScanProgress ?: "not started"}\nLast Client: ${diag.lastClientIp ?: "none"}\nLast Contact: ${if (diag.lastClientContact > 0) formatTime(diag.lastClientContact) else "never"}"
 
-            val indexedTracks = service.getIndexedTrackCount()\n            tvLibraryInfo.text = "Indexed: $indexedTracks | Supported: audio/*\nHTTP source: /download/<encoded media path>"
+            val indexedTracks = serverService?.getIndexedTrackCount() ?: 0
+            tvLibraryInfo.text = "Indexed: $indexedTracks | Supported: audio/*\nHTTP source: /download/<encoded media path>"
 
             tvFileServerInfo.text = "Requests: ${diag.fileRequests.get()}\nBytes: ${diag.bytesServed.get()}\nRanges: ${diag.rangeRequests.get()}\n404: ${diag.errors404.get()} | 416: ${diag.errors416.get()} | 500: ${diag.errors500.get()}\nOpen Failures: ${diag.openFileFailures.get()}"
 
