@@ -203,7 +203,7 @@ class NetworkServerService : Service() {
                         grpcPort,
                         InsecureServerCredentials.create()
                     )
-                    .socketFactory(GrpcServerSocketFactory(diagnostics))
+                    .socketFactory(GrpcServerSocketFactory(diagnostics, lanIp))
                     .executor(executor)
                     .addService(NetworkTrustGrpcService(diagnostics))
                     .addService(EngineLibraryGrpcService())
