@@ -168,8 +168,7 @@ class MediaLibrary(context: Context) {
     }
 
     private fun normalizeKey(value: String): String =
-        value.trim().removePrefix("<").removeSuffix(">")
-            .removeSuffix(">").replace("\\\\", "/")
+        value.trim().removePrefix("<").removeSuffix(">").replace("\\\\", "/")
             .lowercase(Locale.US)
 
     private fun mimeFromName(name: String): String =
