@@ -48,6 +48,7 @@ class NetworkServerService : Service() {
     private var multicastLock: WifiManager.MulticastLock? = null
     private lateinit var eaasToken: ByteArray
     private val executor = Executors.newCachedThreadPool()
+    private var stageLinqHostService: StageLinqHostService? = null
     private var boundPort = 0
     private var boundInterface: String? = null
     private val lifecycleLock = Any()
@@ -160,12 +161,11 @@ class NetworkServerService : Service() {
         // the LAN network explicitly.
         diagnostics.info(TAG, "Android process network binding skipped for inbound server")
 
-        // EAAS defines HTTP as the gRPC+10 endpoint. Try the documented
-        // 50010/50020 pair first, then a fully consistent high-port pair if
-        // Android refuses the legacy HTTP port. The fallback is advertised
-        // through its gRPC port, so the controller derives HTTP 50110 itself.
+        // Keep gRPC on 50010 whenever possible. If Android forbids only HTTP
+        // 50020, move only HTTP to 50110 so the advertised gRPC endpoint stays
+        // stable and the StageLinQ path can be tested independently.
         val candidates = if (port == 50010) {
-            listOf(50010 to 50020, 50100 to 50110)
+            listOf(50010 to 50020, 50010 to 50110)
         } else {
             listOf(port to (port + 10))
         }
@@ -214,10 +214,10 @@ class NetworkServerService : Service() {
                     serverState = ServerState.RUNNING
                 }
 
-                if (grpcPort != 50010) {
+                if (httpPort != 50020) {
                     diagnostics.warn(
                         TAG,
-                        "EAAS legacy HTTP port 50020 unavailable; using fallback gRPC=$grpcPort HTTP=$httpPort"
+                        "EAAS legacy HTTP port 50020 unavailable; keeping gRPC=$grpcPort and using HTTP=$httpPort"
                     )
                 }
 
@@ -226,7 +226,12 @@ class NetworkServerService : Service() {
                 scope.launch { probeLocalGrpcTcp(lanIp, grpcPort) }
                 startHttpAcceptLoop(candidateHttpFd)
                 startEaasDiscoveryListener()
-                updateNotification("EAAS gRPC + HTTP + discovery on $lanIp:$grpcPort")
+                stageLinqHostService = StageLinqHostService(diagnostics, executor).also { host ->
+                    runCatching { host.start() }.onFailure {
+                        diagnostics.error(TAG, "StageLinQ host startup failed; EAAS remains active", it)
+                    }
+                }
+                updateNotification("EAAS + StageLinQ on $lanIp:$grpcPort")
                 return
             } catch (t: Throwable) {
                 lastFailure = t
