@@ -134,10 +134,12 @@ class NetworkDiagnostics(context: Context) {
             linkProps?.linkAddresses?.forEach { prefix ->
                 val addr = prefix.address
                 if (addr is Inet4Address) {
-                    ipv4Addresses.add(addr.hostAddress)
-                    subnet = "${addr.hostAddress}/${prefix.prefixLength}"
+                    val host = addr.hostAddress ?: return@forEach
+                    ipv4Addresses.add(host)
+                    subnet = "$host/${prefix.prefixLength}"
                 } else if (addr is Inet6Address) {
-                    ipv6Addresses.add(addr.hostAddress)
+                    val host = addr.hostAddress ?: return@forEach
+                    ipv6Addresses.add(host)
                 }
             }
 
