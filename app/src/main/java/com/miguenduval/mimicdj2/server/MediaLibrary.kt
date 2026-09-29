@@ -168,7 +168,7 @@ class MediaLibrary(context: Context) {
     }
 
     private fun normalizeKey(value: String): String =
-        value.trim().removePrefix("<").removeSuffix("<")
+        value.trim().removePrefix("<").removeSuffix(">")
             .removeSuffix(">").replace("\\\\", "/")
             .lowercase(Locale.US)
 
