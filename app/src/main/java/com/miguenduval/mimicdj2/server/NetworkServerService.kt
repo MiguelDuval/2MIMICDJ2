@@ -117,14 +117,10 @@ class NetworkServerService : Service() {
                 }
             }
         }
-        // Enter foreground immediately; do not wait for network sockets to bind.
-        try {
-            updateNotification("Starting EAAS server…")
-        } catch (t: Throwable) {
-            diagnostics.error(TAG, "Failed to enter foreground", t)
-            synchronized(lifecycleLock) { serverState = ServerState.STOPPED }
-            return
-        }
+        // Foreground promotion is useful for persistence/visibility, but it must
+        // never prevent the LAN server itself from binding while the Activity is open.
+        runCatching { updateNotification("Starting EAAS server…") }
+            .onFailure { diagnostics.error(TAG, "Foreground promotion failed; continuing with LAN server startup", it) }
         scope.launch { doStartServer(port, iface) }
     }
 
@@ -604,7 +600,10 @@ class NetworkServerService : Service() {
     }
     enum class ServerState { STOPPED, STARTING, RUNNING, STOPPING }
 
-    /** Called by the bound Activity so Stop cannot depend on a second startService delivery. */
+    /** Called by the bound Activity so Start/Stop do not depend on service-intent delivery timing. */
+    fun requestStart(port: Int = 50010, iface: String? = null) = startServer(port, iface)
+
+    /** Called by the bound Activity so Stop does not depend on a second startService delivery. */
     fun requestStop() = stopServer()
 
     fun getDiagnostics(): ServerDiagnostics = diagnostics

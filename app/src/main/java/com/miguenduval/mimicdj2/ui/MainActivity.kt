@@ -53,6 +53,7 @@ class MainActivity : AppCompatActivity() {
     private var isBound = false
     private var periodicUiJob: Job? = null
     private var pendingServerStartAfterLocalNetworkPermission = false
+    private var pendingServerStartAfterServiceBinding = false
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, service: IBinder) {
@@ -61,6 +62,10 @@ class MainActivity : AppCompatActivity() {
             isBound = true
             Timber.tag(TAG).d("Service connected")
             updateServerUI(binder.getService().getServerState())
+            if (pendingServerStartAfterServiceBinding) {
+                pendingServerStartAfterServiceBinding = false
+                startServer()
+            }
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
@@ -119,6 +124,8 @@ class MainActivity : AppCompatActivity() {
         }
         if (checkSelfPermission(permission) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(permission), MEDIA_PERMISSION_REQUEST)
+        } else {
+            ensureLocalNetworkPermission()
         }
     }
 
@@ -181,7 +188,8 @@ class MainActivity : AppCompatActivity() {
     private fun bindToServerService() {
         val intent = Intent(this, NetworkServerService::class.java)
         if (!isBound) {
-            bindService(intent, serviceConnection, 0)
+            val bound = bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+            Timber.tag(TAG).d("bindToServerService autoCreate=$bound")
         }
     }
 
@@ -190,6 +198,7 @@ class MainActivity : AppCompatActivity() {
             unbindService(serviceConnection)
             isBound = false
         }
+        pendingServerStartAfterServiceBinding = false
     }
 
     private fun toggleServer() {
@@ -215,20 +224,21 @@ class MainActivity : AppCompatActivity() {
         }
         pendingServerStartAfterLocalNetworkPermission = false
 
-        val intent = Intent(this, NetworkServerService::class.java).apply {
-            action = NetworkServerService.ACTION_START_SERVER
-            putExtra(NetworkServerService.EXTRA_PORT, 50010)
-        }
-        try {
-            ContextCompat.startForegroundService(this, intent)
-        } catch (e: Exception) {
-            Timber.tag(TAG).e(e, "Failed to start foreground server service")
-            Snackbar.make(findViewById(android.R.id.content), "Server start failed: " + e.message, Snackbar.LENGTH_LONG).show()
-            updateServerUI(NetworkServerService.ServerState.STOPPED)
+        val service = serverService
+        if (service != null && isBound) {
+            pendingServerStartAfterServiceBinding = false
+            service.requestStart(50010)
+            updateServerUI(NetworkServerService.ServerState.STARTING)
             return
         }
-        updateServerUI(NetworkServerService.ServerState.STARTING)
-        if (!isBound) bindToServerService()
+
+        pendingServerStartAfterServiceBinding = true
+        bindToServerService()
+        Snackbar.make(
+            findViewById(android.R.id.content),
+            "Starting local network server…",
+            Snackbar.LENGTH_SHORT
+        ).show()
     }
 
     private fun stopServer() {
