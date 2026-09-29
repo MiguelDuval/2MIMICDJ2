@@ -76,8 +76,19 @@ class NetworkServerService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        eaasToken = com.miguenduval.mimicdj2.network.EaasDiscovery.newToken()
+        eaasToken = loadStableEaasToken()
         diagnostics.info(TAG, "Service created")
+        diagnostics.info(TAG, "EAAS identity token is stable for this Android installation")
+    }
+
+    private fun loadStableEaasToken(): ByteArray {
+        val prefs = getSharedPreferences("eaas_identity", Context.MODE_PRIVATE)
+        val existing = prefs.getString("token", null)
+        val restored = existing?.let { EaasDiscovery.tokenFromHex(it) }
+        if (restored != null) return restored
+        val created = EaasDiscovery.newToken()
+        prefs.edit().putString("token", EaasDiscovery.tokenToHex(created)).apply()
+        return created
     }
 
     override fun onBind(intent: Intent?): IBinder {
