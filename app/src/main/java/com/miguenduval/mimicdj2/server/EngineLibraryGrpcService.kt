@@ -1,6 +1,5 @@
 package com.miguenduval.mimicdj2.server
 
-import android.net.Uri
 import com.miguenduval.mimicdj2.eaas.enginelibrary.v1.EngineLibraryServiceGrpc
 import com.miguenduval.mimicdj2.eaas.enginelibrary.v1.EventStreamRequest
 import com.miguenduval.mimicdj2.eaas.enginelibrary.v1.EventStreamResponse
@@ -155,7 +154,7 @@ class EngineLibraryGrpcService(
             .setUrl(
                 TrackBlobUrl.newBuilder()
                     .setUrl(url)
-                    .setFileSize(track.sizeBytes.coerceAtMost(UInt.MAX_VALUE.toLong()).toInt())
+                    .setFileSize(track.sizeBytes.coerceAtMost(0xFFFF_FFFFL).toInt())
                     .build()
             )
             .build()
