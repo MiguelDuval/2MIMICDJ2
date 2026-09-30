@@ -7,6 +7,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
+import android.widget.EditText
 import android.os.IBinder
 import android.widget.Button
 import android.widget.TextView
@@ -18,6 +21,7 @@ import androidx.lifecycle.lifecycleScope
 import com.google.android.material.snackbar.Snackbar
 import com.miguenduval.mimicdj2.network.NetworkDiagnostics
 import com.miguenduval.mimicdj2.R
+import com.miguenduval.mimicdj2.server.EaasEndpointConfig
 import com.miguenduval.mimicdj2.server.NetworkServerService
 import com.miguenduval.mimicdj2.server.ServerDiagnostics
 import kotlinx.coroutines.Job
@@ -46,6 +50,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnToggleServer: Button
     private lateinit var btnCopyDiagnostics: Button
     private lateinit var btnClearLogs: Button
+    private lateinit var etBridgeHost: EditText
 
     // Services
     private lateinit var networkDiagnostics: NetworkDiagnostics
@@ -108,12 +113,21 @@ class MainActivity : AppCompatActivity() {
         btnToggleServer = findViewById(R.id.btnToggleServer)
         btnCopyDiagnostics = findViewById(R.id.btnCopyDiagnostics)
         btnClearLogs = findViewById(R.id.btnClearLogs)
+        etBridgeHost = findViewById(R.id.etBridgeHost)
+        etBridgeHost.setText(EaasEndpointConfig.loadBridgeHost(this))
     }
 
     private fun setupClickListeners() {
         btnToggleServer.setOnClickListener { toggleServer() }
         btnCopyDiagnostics.setOnClickListener { copyDiagnostics() }
         btnClearLogs.setOnClickListener { clearLogs() }
+        etBridgeHost.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                EaasEndpointConfig.saveBridgeHost(this@MainActivity, s?.toString().orEmpty())
+            }
+            override fun afterTextChanged(s: Editable?) = Unit
+        })
     }
 
     private fun ensureMediaPermission() {
@@ -327,9 +341,11 @@ class MainActivity : AppCompatActivity() {
             val iface = serverService?.getBoundInterface() ?: "none"
             val httpPort = serverService?.getHttpBoundPort() ?: 0
             val httpError = serverService?.getHttpBindError()
+            val advertised = serverService?.getAdvertisedEndpoint()
             tvServicesInfo.text = "TCP gRPC: ${if (port > 0) "$iface:$port" else "not bound"}\n" +
                     "EAAS UDP discovery: ${if (port > 0) "0.0.0.0:11224" else "not bound"}\n" +
-                    "HTTP 50020: ${if (httpPort == 50020) "ON" else "OFF"}" +
+                    "HTTP local: ${if (httpPort > 0) httpPort else "OFF"}\n" +
+                    "Advertised to Prime GO: ${if (advertised != null && advertised.grpcPort > 0) "${advertised.host}:${advertised.grpcPort}" else "inactive"}" +
                     (if (httpError != null) "\nHTTP error: $httpError" else "")
 
             tvDiscoveryInfo.text = "Discovery: ${if (port > 0) "ON" else "OFF"}\nRX: ${diag.discoveryRxCount.get()} | TX: ${diag.discoveryTxCount.get()}\nLast RX: ${if (diag.lastDiscoveryRx > 0) formatTime(diag.lastDiscoveryRx) else "never"}\nLast TX: ${if (diag.lastDiscoveryTx > 0) formatTime(diag.lastDiscoveryTx) else "never"}"
