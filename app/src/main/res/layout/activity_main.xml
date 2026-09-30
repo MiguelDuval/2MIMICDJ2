@@ -88,6 +88,30 @@
                         android:layout_marginTop="8dp"
                         android:text="@string/clear_logs" />
 
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="14dp"
+                        android:text="@string/bridge_title"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <EditText
+                        android:id="@+id/etBridgeHost"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:hint="@string/bridge_host_hint"
+                        android:inputType="textUri"
+                        android:singleLine="true" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="@string/bridge_help"
+                        android:textSize="12sp" />
+
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
