@@ -146,28 +146,23 @@ class NetworkServerService : Service() {
     private fun doStartServerUnsafe(port: Int, iface: String?) {
         var localServer: Server? = null
         try {
-            // The listeners intentionally bind wildcard/IPv4 sockets.
-            // Discovering the concrete LAN address is only needed for
-            // diagnostics and the advertised discovery endpoint; it must not
-            // prevent the local server from starting.
+            // Resolve the actual LAN address first. Android/vendor builds may
+            // reject wildcard TCP listener binds with EPERM even when the
+            // concrete interface address is allowed.
             val lanIp = if (iface.isNullOrBlank()) {
                 NetworkAddress.currentLanIpv4(applicationContext)
             } else iface
             val advertisedHost = lanIp?.takeUnless { it.isBlank() } ?: "0.0.0.0"
 
-            // Inbound server sockets must not depend on a process-wide
-            // ConnectivityManager binding. The phone can expose the controller
-            // LAN as a local/Wi-Fi network whose routing semantics differ from
-            // the process default. The gRPC listener therefore uses an explicit
-            // IPv4 wildcard ServerSocketFactory, while outbound probes select
-            // the LAN network explicitly.
-            diagnostics.info(TAG, "Android process network binding skipped for inbound server")
+            // Do not use ConnectivityManager.bindProcessToNetwork(). The gRPC
+            // listener is bound directly to the concrete LAN IPv4 below.
+            diagnostics.info(TAG, "Using concrete LAN bind address $advertisedHost for inbound gRPC")
             localServer = OkHttpServerBuilder
                 .forPort(
                     port,
                     InsecureServerCredentials.create()
                 )
-                .socketFactory(GrpcServerSocketFactory(diagnostics))
+                .socketFactory(GrpcServerSocketFactory(diagnostics, advertisedHost))
                 .executor(executor)
                 .addService(NetworkTrustGrpcService(diagnostics))
                 .addService(
