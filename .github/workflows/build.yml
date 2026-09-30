@@ -1,0 +1,165 @@
+name: Build
+
+on:
+  push:
+    branches-ignore:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Detect, test, build and package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Android SDK
+        if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
+        run: |
+          set -euo pipefail
+          if [ -d "/usr/lib/android-sdk" ]; then
+            echo "ANDROID_HOME=/usr/lib/android-sdk" >> $GITHUB_ENV
+            echo "ANDROID_SDK_ROOT=/usr/lib/android-sdk" >> $GITHUB_ENV
+            echo "/usr/lib/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
+            echo "/usr/lib/android-sdk/platform-tools" >> $GITHUB_PATH
+            echo "Using pre-installed Android SDK at /usr/lib/android-sdk"
+          elif [ -d "$ANDROID_HOME" ]; then
+            echo "Using existing ANDROID_HOME: $ANDROID_HOME"
+            echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+            echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> $GITHUB_ENV
+          else
+            echo "Android SDK not found, attempting to install minimal SDK..."
+            ANDROID_SDK_ROOT="${{ runner.tool_cache }}/android-sdk"
+            mkdir -p "$ANDROID_SDK_ROOT"
+            cd "$ANDROID_SDK_ROOT"
+            wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip
+            unzip -q cmdline-tools.zip -d cmdline-tools
+            mv cmdline-tools/cmdline-tools cmdline-tools/latest
+            rm cmdline-tools.zip
+            echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> $GITHUB_PATH
+            echo "$ANDROID_SDK_ROOT/platform-tools" >> $GITHUB_PATH
+            yes | cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
+            cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+            echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+            echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+            echo "Installed Android SDK at $ANDROID_SDK_ROOT"
+          fi
+
+      - name: Set up Gradle
+        if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Set up Go
+        if: hashFiles('**/go.mod') != ''
+        uses: actions/setup-go@v6
+        with:
+          go-version: stable
+          cache: true
+
+      - name: Set up Node
+        if: hashFiles('**/package.json') != ''
+        uses: actions/setup-node@v6
+        with:
+          node-version: 'lts/*'
+          cache: npm
+
+      - name: Test EAAS TCP compatibility bridge
+        if: hashFiles('tools/eaas_bridge.py', 'tools/tests/test_*.py') != ''
+        run: python3 -m unittest discover -s tools/tests -p 'test_*.py' -v
+
+      - name: Gradle diagnostics
+        if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
+        shell: bash
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          ./gradlew --version
+
+      - name: Build project
+        if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
+        shell: bash
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+        run: |
+          set -euo pipefail
+          echo "=== Running Gradle Build ==="
+          ./gradlew test lint assembleDebug --stacktrace --info \
+            -Pandroid.sdk.dir="${ANDROID_HOME:-/usr/lib/android-sdk}" \
+            -Pandroid.home="${ANDROID_HOME:-/usr/lib/android-sdk}"
+
+      - name: Collect build outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ci-artifacts
+
+          find . -type f \( \
+            -name "*.apk" -o \
+            -name "*.aab" -o \
+            -name "*.jar" -o \
+            -name "*.aar" -o \
+            -name "*.zip" \
+          \) \
+            -not -path "./.git/*" \
+            -not -path "./ci-artifacts/*" \
+            -print -exec cp --parents "{}" ci-artifacts/ \;
+
+          if [[ -d "build/reports" ]]; then
+            cp -r build/reports ci-artifacts/ || true
+          fi
+
+          if find ci-artifacts -type f | grep -q .; then
+            echo "Artifacts collected:"
+            find ci-artifacts -type f -print
+          else
+            echo "No distributable artifact exists yet."
+          fi
+
+      - name: Upload build artifacts
+        if: hashFiles('ci-artifacts/**') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-${{ github.sha }}
+          path: ci-artifacts/**
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Publish raw debug APK
+        if: github.event_name == 'push' && github.ref == 'refs/heads/agent/clean-slate'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          gh release delete mimicdj2-test --cleanup-tag --yes || true
+          gh release create mimicdj2-test \
+            "$APK" \
+            --prerelease \
+            --title "2MIMICDJ2 test APK" \
+            --notes "Raw APK for Prime GO hardware testing. Commit ${GITHUB_SHA}."
