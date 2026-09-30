@@ -163,7 +163,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun ensureLocalNetworkPermission(): Boolean {
-        if (android.os.Build.VERSION.SDK_INT < 33) return true
+        // Android's Local Network Protection uses the Nearby Wi-Fi permission for
+        // apps targeting API 33+ during the compatibility phase. This build
+        // intentionally targets 32 to test the legacy socket policy, where LAN
+        // access remains implicit and the permission must not block Start.
+        if (android.os.Build.VERSION.SDK_INT < 33 ||
+            applicationInfo.targetSdkVersion < 33
+        ) {
+            return true
+        }
         val permission = Manifest.permission.NEARBY_WIFI_DEVICES
         val granted = checkSelfPermission(permission) == android.content.pm.PackageManager.PERMISSION_GRANTED
         Timber.tag(TAG).d("Local network / Nearby devices permission granted=$granted")
@@ -300,62 +308,138 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startPeriodicUIUpdate() {
-        periodicUiJob?.cancel()
         periodicUiJob = lifecycleScope.launch {
             while (isActive) {
-                val service = serverService
-                if (service != null) {
-                    updateDiagnosticsUI()
-                    updateServerUI(service.getServerState())
-                }
-                delay(500)
+                refreshNetworkInfo()
+                updateServerUI(serverService?.getServerState() ?: NetworkServerService.ServerState.STOPPED)
+                updateServicesUI()
+                updateDiscoveryUI()
+                updateSessionUI()
+                updateLibraryUI()
+                updateFileServerUI()
+                updateEventLog()
+                delay(1000L)
             }
         }
     }
 
-    private fun updateDiagnosticsUI() {
-        val diag = serverService?.getDiagnostics()
-        if (diag == null) return
+    private fun updateServicesUI() {
+        val service = serverService
+        if (service == null) {
+            tvServicesInfo.text = "Service: not bound"
+            return
+        }
+        val port = service.getBoundPort()
+        val iface = service.getBoundInterface() ?: "none"
+        val httpPort = service.getHttpBoundPort()
+        val httpError = service.getHttpBindError()
+        tvServicesInfo.text =
+            "gRPC: ${if (port > 0) "LISTENING" else "OFF"}
+" +
+            "Port: ${if (port > 0) port else "—"}
+" +
+            "Interface: $iface
+" +
+            "HTTP: ${if (httpPort > 0) "LISTENING" else "OFF"}
+" +
+            "HTTP port: ${if (httpPort > 0) httpPort else "—"}" +
+            (if (!httpError.isNullOrBlank()) "
+HTTP error: $httpError" else "")
+    }
 
-        runOnUiThread {
-            val port = serverService?.getBoundPort() ?: 0
-            val iface = serverService?.getBoundInterface() ?: "none"
-            val httpPort = serverService?.getHttpBoundPort() ?: 0
-            val httpError = serverService?.getHttpBindError()
-            tvServicesInfo.text = "TCP gRPC: ${if (port > 0) "$iface:$port" else "not bound"}\n" +
-                    "EAAS UDP discovery: ${if (port > 0) "0.0.0.0:11224" else "not bound"}\n" +
-                    "HTTP 50020: ${if (httpPort == 50020) "ON" else "OFF"}" +
-                    (if (httpError != null) "\nHTTP error: $httpError" else "")
+    private fun updateDiscoveryUI() {
+        val service = serverService
+        if (service == null) {
+            tvDiscoveryInfo.text = "Server service not bound"
+            return
+        }
+        val diag = service.getDiagnostics()
+        tvDiscoveryInfo.text =
+            "RX: ${diag.discoveryRxCount.get()} | TX: ${diag.discoveryTxCount.get()}
+" +
+            "Last RX: ${if (diag.lastDiscoveryRx > 0) formatTime(diag.lastDiscoveryRx) else "never"}
+" +
+            "Last TX: ${if (diag.lastDiscoveryTx > 0) formatTime(diag.lastDiscoveryTx) else "never"}
+" +
+            "Last client: ${diag.lastClientIp ?: "none"}"
+    }
 
-            tvDiscoveryInfo.text = "Discovery: ${if (port > 0) "ON" else "OFF"}\nRX: ${diag.discoveryRxCount.get()} | TX: ${diag.discoveryTxCount.get()}\nLast RX: ${if (diag.lastDiscoveryRx > 0) formatTime(diag.lastDiscoveryRx) else "never"}\nLast TX: ${if (diag.lastDiscoveryTx > 0) formatTime(diag.lastDiscoveryTx) else "never"}"
+    private fun updateSessionUI() {
+        val service = serverService
+        if (service == null) {
+            tvSessionInfo.text = "Server service not bound"
+            return
+        }
+        val diag = service.getDiagnostics()
+        tvSessionInfo.text = "Raw TCP accepts: ${diag.rawTcpAccepts.get()}
+gRPC connections: ${diag.connectionsOpened.get()}
+Trust Msgs: ${diag.trustMessages.get()}
+RPC Calls: ${diag.rpcCount.get()}
+Methods: ${diag.observedRpcMethods.joinToString(", ") { if (it.isEmpty()) "none" else it }}
+Prime GO TCP/50010: ${diag.primeGoPort50010 ?: "not probed"}
+Prime GO TCP/50020: ${diag.primeGoPort50020 ?: "not probed"}
+Prime GO TCP/50021: ${diag.primeGoPort50021 ?: "not probed"}
+Prime GO high ports: ${diag.primeGoHighPortScan ?: "not finished"}
+Scan progress: ${diag.primeGoHighPortScanProgress ?: "not started"}
+Last Client: ${diag.lastClientIp ?: "none"}
+Last Contact: ${if (diag.lastClientContact > 0) formatTime(diag.lastClientContact) else "never"}"
+    }
 
-            tvSessionInfo.text = "Raw TCP accepts: ${diag.rawTcpAccepts.get()}\ngRPC connections: ${diag.connectionsOpened.get()}\nTrust Msgs: ${diag.trustMessages.get()}\nRPC Calls: ${diag.rpcCount.get()}\nMethods: ${diag.observedRpcMethods.joinToString(", ") { if (it.isEmpty()) "none" else it }}\nPrime GO TCP/50010: ${diag.primeGoPort50010 ?: "not probed"}\nPrime GO TCP/50020: ${diag.primeGoPort50020 ?: "not probed"}\nPrime GO TCP/50021: ${diag.primeGoPort50021 ?: "not probed"}\nPrime GO high ports: ${diag.primeGoHighPortScan ?: "not finished"}\nScan progress: ${diag.primeGoHighPortScanProgress ?: "not started"}\nLast Client: ${diag.lastClientIp ?: "none"}\nLast Contact: ${if (diag.lastClientContact > 0) formatTime(diag.lastClientContact) else "never"}"
+    private fun updateLibraryUI() {
+        val service = serverService
+        if (service == null) {
+            tvLibraryInfo.text = "Server service not bound"
+            return
+        }
+        val count = service.getIndexedTrackCount()
+        tvLibraryInfo.text = "Indexed tracks: $count"
+    }
 
-            val indexedTracks = serverService?.getIndexedTrackCount() ?: 0
-            tvLibraryInfo.text = "Indexed: $indexedTracks | Supported: audio/*\nHTTP source: /download/<encoded media path>"
+    private fun updateFileServerUI() {
+        val service = serverService
+        if (service == null) {
+            tvFileServerInfo.text = "Server service not bound"
+            return
+        }
+        val diag = service.getDiagnostics()
+        tvFileServerInfo.text =
+            "Requests: ${diag.fileRequests.get()}
+" +
+            "Bytes: ${diag.bytesServed.get()}
+" +
+            "Ranges: ${diag.rangeRequests.get()}
+" +
+            "404: ${diag.errors404.get()} | 416: ${diag.errors416.get()} | 500: ${diag.errors500.get()}\n" +
+            "Open Failures: ${diag.openFileFailures.get()}"
+    }
 
-            tvFileServerInfo.text = "Requests: ${diag.fileRequests.get()}\nBytes: ${diag.bytesServed.get()}\nRanges: ${diag.rangeRequests.get()}\n404: ${diag.errors404.get()} | 416: ${diag.errors416.get()} | 500: ${diag.errors500.get()}\nOpen Failures: ${diag.openFileFailures.get()}"
-
-            val logs = diag.getLogEntries().takeLast(20).joinToString("\n") { "[${formatTime(it.timestamp)}] ${it.level} ${it.tag}: ${it.message}" }
-            tvEventLog.text = if (logs.isEmpty()) "[No log entries]" else logs
+    private fun updateEventLog() {
+        val service = serverService
+        if (service == null) {
+            tvEventLog.text = "Server service not bound"
+            return
+        }
+        val entries = service.getDiagnostics().getLogEntries().takeLast(12)
+        tvEventLog.text = entries.joinToString("
+") { entry ->
+            val t = formatTime(entry.timestamp)
+            "$t ${entry.level} ${entry.tag}: ${entry.message}"
         }
     }
 
+    private fun formatTime(timestamp: Long): String {
+        val fmt = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+        return fmt.format(java.util.Date(timestamp))
+    }
+
     private fun copyDiagnostics() {
-        val diag = serverService?.getDiagnostics()
-        val report = diag?.generateDiagnosticReport() ?: "Server not running"
+        val report = serverService?.getDiagnostics()?.generateDiagnosticReport() ?: "Server not running"
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-        val clip = android.content.ClipData.newPlainText("Diagnostic Report", report)
-        clipboard.setPrimaryClip(clip)
-        Snackbar.make(findViewById(android.R.id.content), "Diagnostic report copied to clipboard", Snackbar.LENGTH_LONG).show()
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("2MIMICDJ2 diagnostics", report))
+        Toast.makeText(this, "Diagnostics copied to clipboard", Toast.LENGTH_SHORT).show()
     }
 
     private fun clearLogs() {
         serverService?.getDiagnostics()?.clearLogs()
-        tvEventLog.text = "[Logs cleared]"
-    }
-
-    private fun formatTime(timestamp: Long): String {
-        return android.text.format.DateFormat.format("HH:mm:ss", timestamp).toString()
     }
 }
