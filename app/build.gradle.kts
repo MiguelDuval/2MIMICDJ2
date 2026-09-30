@@ -11,7 +11,7 @@ android {
     defaultConfig {
         applicationId = "com.miguenduval.mimicdj2"
         minSdk = 24
-        targetSdk = 34
+        targetSdk = 32
         versionCode = 1
         versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -23,7 +23,7 @@ android {
             isMinifyEnabled = false
             isShrinkResources = false
             applicationIdSuffix = ".debug"
-            versionNameSuffix = "-debug"
+            versionNameSuffix = "-debug-t32"
             matchingFallbacks += listOf("release")
         }
         release {
