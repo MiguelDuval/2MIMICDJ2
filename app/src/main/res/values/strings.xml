@@ -12,6 +12,9 @@
     <string name="stop_server">Stop Server</string>
     <string name="copy_diagnostics">Copy Diagnostic Report</string>
     <string name="clear_logs">Clear Logs</string>
+    <string name="bridge_title">Engine compatibility bridge (optional)</string>
+    <string name="bridge_host_hint">Bridge host IP (e.g. 10.0.0.10)</string>
+    <string name="bridge_help">When set, Prime GO is told to use the bridge on TCP 50010/50020. The bridge forwards to this phone's high ports.</string>
     <string name="diagnostics_title">Diagnostics</string>
     <string name="network_title">Network</string>
     <string name="services_title">Services</string>
