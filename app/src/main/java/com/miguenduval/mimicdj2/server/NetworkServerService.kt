@@ -170,6 +170,24 @@ class NetworkServerService : Service() {
         var lastFailure: Throwable? = null
 
         for (candidatePort in grpcCandidates) {
+            // On some Android/OEM builds the permission decision is attached to
+            // the selected Wi-Fi Network. Bind the process to that network only
+            // while testing the standard EAAS endpoint; keep the successful
+            // binding for the lifetime of the server so accepted LAN traffic
+            // follows the same network.
+            var processNetworkBound = false
+            if (candidatePort == port) {
+                val networkResult = NetworkAddress.bindProcessToLanIpv4Network(
+                    applicationContext,
+                    advertisedHost
+                )
+                processNetworkBound = networkResult.startsWith("OK")
+                diagnostics.info(
+                    TAG,
+                    "Process Wi-Fi network bind for standard port $candidatePort: $networkResult"
+                )
+            }
+
             for (bindIpv6Wildcard in listOf(false, true)) {
                 var localServer: Server? = null
                 try {
@@ -193,7 +211,8 @@ class NetworkServerService : Service() {
                         GrpcServerSocketFactory(
                             diagnostics = diagnostics,
                             bindAddress = advertisedHost,
-                            bindIpv6Wildcard = bindIpv6Wildcard
+                            bindIpv6Wildcard = bindIpv6Wildcard,
+                            reuseAddress = false
                         )
                     )
                     .executor(executor)
@@ -260,8 +279,19 @@ class NetworkServerService : Service() {
                     t
                 )
                 runCatching { localServer?.shutdownNow() }
+                if (candidatePort == port && bindIpv6Wildcard) {
+                    // The standard endpoint failed on both address families.
+                    // Capture the kernel port-policy evidence before falling back.
+                    diagnoseTcpBindFailure(port)
+                    if (processNetworkBound) {
+                        NetworkAddress.clearProcessBinding(applicationContext)
+                        diagnostics.info(TAG, "Cleared temporary process Wi-Fi binding after standard port failure")
+                        processNetworkBound = false
+                    }
+                }
             }
-        }
+            // If this candidate succeeded, processNetworkBound remains true and
+            // is intentionally kept until server shutdown.
         }
 
         throw lastFailure ?: IllegalStateException("No usable gRPC listener port")
@@ -311,15 +341,6 @@ class NetworkServerService : Service() {
                 OsConstants.IPPROTO_TCP
             )
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    Os.setsockoptInt(
-                        fd,
-                        OsConstants.SOL_SOCKET,
-                        OsConstants.SO_REUSEADDR,
-                        1
-                    )
-                }
-
                 val lanHost = NetworkAddress.currentLanIpv4(applicationContext)
                 val bindHost = lanHost ?: "0.0.0.0"
                 try {

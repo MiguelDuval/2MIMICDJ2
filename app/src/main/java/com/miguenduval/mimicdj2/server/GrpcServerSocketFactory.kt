@@ -16,19 +16,20 @@ import javax.net.ServerSocketFactory
 class GrpcServerSocketFactory(
     private val diagnostics: ServerDiagnostics,
     private val bindAddress: String = "0.0.0.0",
-    private val bindIpv6Wildcard: Boolean = false
+    private val bindIpv6Wildcard: Boolean = false,
+    private val reuseAddress: Boolean = false
 ) : ServerSocketFactory() {
     override fun createServerSocket(): ServerSocket = LoggingServerSocket()
 
     override fun createServerSocket(port: Int): ServerSocket =
         LoggingServerSocket().also { socket ->
-            socket.reuseAddress = true
+            socket.reuseAddress = reuseAddress
             socket.bind(InetSocketAddress(resolveBindAddress(), port))
         }
 
     override fun createServerSocket(port: Int, backlog: Int): ServerSocket =
         LoggingServerSocket().also { socket ->
-            socket.reuseAddress = true
+            socket.reuseAddress = reuseAddress
             socket.bind(InetSocketAddress(resolveBindAddress(), port), backlog)
         }
 

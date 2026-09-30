@@ -163,13 +163,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun ensureLocalNetworkPermission(): Boolean {
-        // Android's Local Network Protection uses the Nearby Wi-Fi permission for
-        // apps targeting API 33+ during the compatibility phase. This build
-        // intentionally targets 32 to test the legacy socket policy, where LAN
-        // access remains implicit and the permission must not block Start.
-        if (android.os.Build.VERSION.SDK_INT < 33 ||
-            applicationInfo.targetSdkVersion < 33
-        ) {
+        // Request Nearby devices on Android 13+ regardless of target SDK.
+        // Some OEM Android 16 builds backport local-network enforcement to
+        // legacy-targeted applications, so relying on targetSdk alone is unsafe.
+        if (android.os.Build.VERSION.SDK_INT < 33) {
             return true
         }
         val permission = Manifest.permission.NEARBY_WIFI_DEVICES

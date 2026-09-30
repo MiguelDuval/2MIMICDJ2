@@ -31,7 +31,8 @@ object PortDiagnostics {
 
         val text = buildString {
             append("Java ${targetPort - 1} wildcard: ").append(probeJava("0.0.0.0", targetPort - 1)).append('\n')
-            append("Java $targetPort wildcard: ").append(probeJava("0.0.0.0", targetPort)).append('\n')
+            append("Java $targetPort wildcard (reuse): ").append(probeJava("0.0.0.0", targetPort, true)).append('\n')
+            append("Java $targetPort wildcard (no-reuse): ").append(probeJava("0.0.0.0", targetPort, false)).append('\n')
             append("Java ${targetPort + 1} wildcard: ").append(probeJava("0.0.0.0", targetPort + 1)).append('\n')
             append("Java ${targetPort + 2} wildcard: ").append(probeJava("0.0.0.0", targetPort + 2)).append('\n')
             append("Java 50100 wildcard: ").append(probeJava("0.0.0.0", 50100)).append('\n')
@@ -42,8 +43,10 @@ object PortDiagnostics {
             append("Native ${targetPort + 1} wildcard: ").append(probeNative("0.0.0.0", targetPort + 1, false)).append('\n')
 
             if (!lanIpv4.isNullOrBlank()) {
-                append("Java $targetPort LAN ").append(lanIpv4).append(": ")
-                    .append(probeJava(lanIpv4, targetPort)).append('\n')
+                append("Java $targetPort LAN ").append(lanIpv4).append(" (reuse): ")
+                    .append(probeJava(lanIpv4, targetPort, true)).append('\n')
+                append("Java $targetPort LAN ").append(lanIpv4).append(" (no-reuse): ")
+                    .append(probeJava(lanIpv4, targetPort, false)).append('\n')
                 append("Native $targetPort LAN ").append(lanIpv4).append(": ")
                     .append(probeNative(lanIpv4, targetPort, false)).append('\n')
             } else {
@@ -51,7 +54,8 @@ object PortDiagnostics {
                 append("Native $targetPort LAN: no LAN IPv4 supplied\n")
             }
 
-            append("Java $targetPort loopback: ").append(probeJava("127.0.0.1", targetPort)).append('\n')
+            append("Java $targetPort loopback (reuse): ").append(probeJava("127.0.0.1", targetPort, true)).append('\n')
+            append("Java $targetPort loopback (no-reuse): ").append(probeJava("127.0.0.1", targetPort, false)).append('\n')
             append("Native $targetPort loopback: ").append(probeNative("127.0.0.1", targetPort, false)).append('\n')
             append("Native $targetPort IPv6 wildcard: ").append(probeNativeIpv6(targetPort)).append('\n')
 
@@ -73,9 +77,9 @@ object PortDiagnostics {
         return text
     }
 
-    private fun probeJava(host: String, port: Int): String = try {
+    private fun probeJava(host: String, port: Int, reuseAddress: Boolean = true): String = try {
         ServerSocket().use { socket ->
-            socket.reuseAddress = true
+            socket.reuseAddress = reuseAddress
             socket.bind(InetSocketAddress(host, port))
         }
         "ALLOWED"
