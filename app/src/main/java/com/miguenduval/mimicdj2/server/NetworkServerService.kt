@@ -312,7 +312,7 @@ class NetworkServerService : Service() {
             runCatching { Os.close(fd) }
             httpBindError = t.javaClass.simpleName + ": " + (t.message ?: "no message")
             diagnostics.error(TAG, "Failed to start native EAAS HTTP server on $port", t)
-            diagnoseTcpBindFailure()
+            diagnoseTcpBindFailure(port)
             throw IllegalStateException(
                 "Native HTTP $port bind failed: " +
                     t.javaClass.simpleName + ": " + (t.message ?: "no message"),
