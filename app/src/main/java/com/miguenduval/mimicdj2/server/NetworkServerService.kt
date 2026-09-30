@@ -271,7 +271,7 @@ class NetworkServerService : Service() {
         } catch (t: Throwable) {
             httpBindError = t.javaClass.simpleName + ": " + (t.message ?: "no message")
             diagnostics.error(TAG, "Failed to create native EAAS HTTP socket on $port", t)
-            diagnoseTcpBindFailure()
+            diagnoseTcpBindFailure(port)
             throw IllegalStateException(
                 "Native HTTP socket creation failed on $port: " +
                     t.javaClass.simpleName + ": " + (t.message ?: "no message"),
@@ -339,8 +339,8 @@ class NetworkServerService : Service() {
         }
     }
 
-    private fun diagnoseTcpBindFailure() {
-        diagnostics.info(TAG, "Port 50020 diagnostic matrix:\n${PortDiagnostics.snapshot(NetworkAddress.currentLanIpv4(applicationContext))}")
+    private fun diagnoseTcpBindFailure(targetPort: Int = 50020) {
+        diagnostics.info(TAG, "Port $targetPort diagnostic matrix:\n${PortDiagnostics.snapshot(NetworkAddress.currentLanIpv4(applicationContext), targetPort)}")
 
         // A failed bind does not tell us whether the port is reserved-but-unused
         // or whether another system/vendor service already owns it. A connect
@@ -349,10 +349,10 @@ class NetworkServerService : Service() {
         if (!host.isNullOrBlank()) {
             diagnostics.info(
                 TAG,
-                "TCP connect probes: 50020 LAN=${probeTcpEndpoint(host, 50020)} " +
-                    "loopback=${probeTcpEndpoint("127.0.0.1", 50020)}; " +
-                    "50021 LAN=${probeTcpEndpoint(host, 50021)}; " +
-                    "50022 LAN=${probeTcpEndpoint(host, 50022)}"
+                "TCP connect probes: $targetPort LAN=${probeTcpEndpoint(host, targetPort)} " +
+                    "loopback=${probeTcpEndpoint("127.0.0.1", targetPort)}; " +
+                    "${targetPort + 1} LAN=${probeTcpEndpoint(host, targetPort + 1)}; " +
+                    "${targetPort + 2} LAN=${probeTcpEndpoint(host, targetPort + 2)}"
             )
         } else {
             diagnostics.warn(TAG, "TCP connect probes skipped: no LAN IPv4")
