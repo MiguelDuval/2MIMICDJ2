@@ -82,3 +82,23 @@ A true standalone-phone solution now requires one of:
 3. a different Engine protocol path that the actual Prime GO demonstrably follows.
 
 Until one of those is demonstrated, 50100/50110-style fallback must be treated as diagnostic/research mode, not as a proven Engine-compatible transport.
+
+## Resolution path adopted on 2026-09-30
+
+The repository now implements option 2 as the practical stock-Android path:
+a LAN compatibility gateway.
+
+The phone keeps its working high-port server (normally gRPC 50100 and HTTP
+50110). A separate Linux/macOS/Windows host owns the Engine-standard TCP
+50010/50020 ports and forwards each TCP byte stream to the phone.
+
+2MIMICDJ2 now has a persisted "Engine compatibility bridge" host setting. When
+it is filled in, EAAS discovery advertises the gateway as
+grpc://GATEWAY_IP:50010, while GetTrack URLs use the same gateway host on
+TCP 50020. The bridge maps those endpoints to the phone's high ports.
+
+This is the first architecture in this repository that removes the proven
+Android kernel restriction instead of trying another socket-binding variant.
+
+The bridge is implemented in tools/eaas_bridge.py and its bidirectional,
+message-framing-free TCP behavior is covered by tools/tests/test_eaas_bridge.py.
