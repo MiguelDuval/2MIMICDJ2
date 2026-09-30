@@ -262,6 +262,7 @@ class NetworkServerService : Service() {
                 runCatching { localServer?.shutdownNow() }
             }
         }
+        }
 
         throw lastFailure ?: IllegalStateException("No usable gRPC listener port")
     }
