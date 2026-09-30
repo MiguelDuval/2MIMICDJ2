@@ -226,10 +226,17 @@ class NetworkServerService : Service() {
                     )
                 }
 
+                val httpPort = pairedHttpPort(actualPort)
+                startHttpServer(httpPort)
+
+                // Do not announce the EAAS device until both paired endpoints are
+                // actually listening. Engine derives HTTP as grpcPort + 10.
                 scope.launch { probeLocalGrpcTcp(advertisedHost, actualPort) }
-                startHttpServer()
                 startEaasDiscoveryListener()
-                updateNotification("EAAS gRPC + HTTP + discovery on $advertisedHost:$actualPort")
+                updateNotification(
+                    "EAAS gRPC + HTTP + discovery on " +
+                        "$advertisedHost:$actualPort / HTTP:$httpPort"
+                )
                 return
             } catch (t: Throwable) {
                 lastFailure = t
@@ -245,77 +252,89 @@ class NetworkServerService : Service() {
         throw lastFailure ?: IllegalStateException("No usable gRPC listener port")
     }
 
-    private fun startHttpServer() {
-        scope.launch {
-            try {
-                // The first Mimic DJ established that 50020 can reject the Java
-                // ServerSocket path with EPERM on Android. Use the native Android
-                // socket API directly as the primary EAAS HTTP listener.
-                val fd = Os.socket(
-                    OsConstants.AF_INET,
-                    OsConstants.SOCK_STREAM,
-                    OsConstants.IPPROTO_TCP
+    private fun pairedHttpPort(grpcPort: Int): Int {
+        require(grpcPort in 1..65525) {
+            "gRPC port $grpcPort cannot derive EAAS HTTP port (grpcPort + 10)"
+        }
+        return grpcPort + 10
+    }
+
+    private fun startHttpServer(port: Int) {
+        val fd = try {
+            // Use the native Android socket API directly. This avoids the Java
+            // ServerSocket path and lets the service bind the exact EAAS pair.
+            Os.socket(
+                OsConstants.AF_INET,
+                OsConstants.SOCK_STREAM,
+                OsConstants.IPPROTO_TCP
+            )
+        } catch (t: Throwable) {
+            httpBindError = t.javaClass.simpleName + ": " + (t.message ?: "no message")
+            diagnostics.error(TAG, "Failed to create native EAAS HTTP socket on $port", t)
+            diagnoseTcpBindFailure()
+            throw IllegalStateException(
+                "Native HTTP socket creation failed on $port: " +
+                    t.javaClass.simpleName + ": " + (t.message ?: "no message"),
+                t
+            )
+        }
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Os.setsockoptInt(
+                    fd,
+                    OsConstants.SOL_SOCKET,
+                    OsConstants.SO_REUSEADDR,
+                    1
                 )
+            }
 
-                try {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        Os.setsockoptInt(
-                            fd,
-                            OsConstants.SOL_SOCKET,
-                            OsConstants.SO_REUSEADDR,
-                            1
-                        )
-                    }
-                    // Prefer the concrete LAN address. This preserves the normal
-                    // EAAS 50020 endpoint while avoiding a vendor/kernel policy
-                    // that may reject wildcard binds on some Android builds.
-                    val lanHost = NetworkAddress.currentLanIpv4(applicationContext)
-                    val bindHost = lanHost ?: "0.0.0.0"
-                    try {
-                        Os.bind(fd, InetAddress.getByName(bindHost), 50020)
-                    } catch (first: Throwable) {
-                        if (bindHost != "0.0.0.0") {
-                            diagnostics.warn(
-                                TAG,
-                                "HTTP 50020 bind on $bindHost failed; retrying wildcard: " +
-                                    first.javaClass.simpleName + ": " + (first.message ?: "no message")
-                            )
-                            Os.bind(fd, InetAddress.getByName("0.0.0.0"), 50020)
-                        } else {
-                            throw first
-                        }
-                    }
-                    Os.listen(fd, 64)
-                } catch (t: Throwable) {
-                    runCatching { Os.close(fd) }
-                    throw IllegalStateException(
-                        "Native HTTP 50020 bind failed: " +
-                            t.javaClass.simpleName + ": " + (t.message ?: "no message"),
-                        t
+            // EAAS HTTP is paired with gRPC at grpcPort + 10. With the
+            // Android gRPC fallback 50100, the correct HTTP port is 50110.
+            val lanHost = NetworkAddress.currentLanIpv4(applicationContext)
+            val bindHost = lanHost ?: "0.0.0.0"
+            try {
+                Os.bind(fd, InetAddress.getByName(bindHost), port)
+            } catch (first: Throwable) {
+                if (bindHost != "0.0.0.0") {
+                    diagnostics.warn(
+                        TAG,
+                        "HTTP $port bind on $bindHost failed; retrying wildcard: " +
+                            first.javaClass.simpleName + ": " + (first.message ?: "no message")
                     )
+                    Os.bind(fd, InetAddress.getByName("0.0.0.0"), port)
+                } else {
+                    throw first
                 }
+            }
+            Os.listen(fd, 64)
+        } catch (t: Throwable) {
+            runCatching { Os.close(fd) }
+            httpBindError = t.javaClass.simpleName + ": " + (t.message ?: "no message")
+            diagnostics.error(TAG, "Failed to start native EAAS HTTP server on $port", t)
+            diagnoseTcpBindFailure()
+            throw IllegalStateException(
+                "Native HTTP $port bind failed: " +
+                    t.javaClass.simpleName + ": " + (t.message ?: "no message"),
+                t
+            )
+        }
 
-                httpServerFd = fd
-                httpBoundPort = 50020
-                httpBindError = null
-                diagnostics.info(TAG, "EAAS HTTP native server listening on 50020")
+        httpServerFd = fd
+        httpBoundPort = port
+        httpBindError = null
+        diagnostics.info(TAG, "EAAS HTTP native server listening on $port (gRPC=$boundPort)")
 
-                while (httpServerFd != null) {
-                    try {
-                        val clientFd = Os.accept(fd, null)
-                        executor.execute { handleHttpClient(clientFd) }
-                    } catch (t: Throwable) {
-                        if (httpServerFd != null) {
-                            diagnostics.error(TAG, "HTTP native accept error", t)
-                        }
+        scope.launch {
+            while (httpServerFd != null) {
+                try {
+                    val clientFd = Os.accept(fd, null)
+                    executor.execute { handleHttpClient(clientFd) }
+                } catch (t: Throwable) {
+                    if (httpServerFd != null) {
+                        diagnostics.error(TAG, "HTTP native accept error", t)
                     }
                 }
-            } catch (e: Exception) {
-                if (httpBindError == null) {
-                    httpBindError = e.javaClass.simpleName + ": " + (e.message ?: "no message")
-                }
-                diagnostics.error(TAG, "Failed to start native EAAS HTTP server on 50020", e)
-                diagnoseTcpBindFailure()
             }
         }
     }
