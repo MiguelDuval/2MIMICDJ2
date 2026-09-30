@@ -39,7 +39,7 @@ class GrpcServerSocketFactory(
     ): ServerSocket =
         LoggingServerSocket().also { socket ->
             socket.reuseAddress = true
-            socket.bind(InetSocketAddress(bindAddress, port), backlog)
+            socket.bind(InetSocketAddress(resolveBindAddress(), port), backlog)
         }
 
     private fun resolveBindAddress(): InetAddress =
