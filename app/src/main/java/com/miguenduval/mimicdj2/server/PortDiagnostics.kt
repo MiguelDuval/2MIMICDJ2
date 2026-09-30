@@ -17,42 +17,42 @@ import java.net.ServerSocket
  * or affected by socket-option behaviour.
  */
 object PortDiagnostics {
-    private const val TARGET_PORT = 50020
+    private const val DEFAULT_TARGET_PORT = 50020
     private const val CACHE_MS = 5_000L
 
     @Volatile private var cachedAtMs = 0L
     @Volatile private var cachedText: String? = null
 
     @Synchronized
-    fun snapshot(lanIpv4: String? = null): String {
+    fun snapshot(lanIpv4: String? = null, targetPort: Int = DEFAULT_TARGET_PORT): String {
         val now = System.currentTimeMillis()
-        cachedText?.takeIf { now - cachedAtMs < CACHE_MS }?.let { return it }
+        cachedText?.takeIf { now - cachedAtMs < CACHE_MS && cachedTargetPort == targetPort }?.let { return it }
 
         val text = buildString {
-            append("Java 50019 wildcard: ").append(probeJava("0.0.0.0", 50019)).append('\n')
-            append("Java 50020 wildcard: ").append(probeJava("0.0.0.0", TARGET_PORT)).append('\n')
-            append("Java 50021 wildcard: ").append(probeJava("0.0.0.0", 50021)).append('\n')
-            append("Java 50022 wildcard: ").append(probeJava("0.0.0.0", 50022)).append('\n')
+            append("Java ${targetPort - 1} wildcard: ").append(probeJava("0.0.0.0", targetPort - 1)).append('\n')
+            append("Java $targetPort wildcard: ").append(probeJava("0.0.0.0", targetPort)).append('\n')
+            append("Java ${targetPort + 1} wildcard: ").append(probeJava("0.0.0.0", targetPort + 1)).append('\n')
+            append("Java ${targetPort + 2} wildcard: ").append(probeJava("0.0.0.0", targetPort + 2)).append('\n')
             append("Java 50100 wildcard: ").append(probeJava("0.0.0.0", 50100)).append('\n')
             append("Java 60000 wildcard: ").append(probeJava("0.0.0.0", 60000)).append('\n')
 
-            append("Native 50020 wildcard: ").append(probeNative("0.0.0.0", TARGET_PORT, false)).append('\n')
-            append("Native 50020 wildcard reuseport: ").append(probeNative("0.0.0.0", TARGET_PORT, true)).append('\n')
-            append("Native 50021 wildcard: ").append(probeNative("0.0.0.0", 50021, false)).append('\n')
+            append("Native $targetPort wildcard: ").append(probeNative("0.0.0.0", targetPort, false)).append('\n')
+            append("Native $targetPort wildcard reuseport: ").append(probeNative("0.0.0.0", targetPort, true)).append('\n')
+            append("Native ${targetPort + 1} wildcard: ").append(probeNative("0.0.0.0", targetPort + 1, false)).append('\n')
 
             if (!lanIpv4.isNullOrBlank()) {
-                append("Java 50020 LAN ").append(lanIpv4).append(": ")
-                    .append(probeJava(lanIpv4, TARGET_PORT)).append('\n')
-                append("Native 50020 LAN ").append(lanIpv4).append(": ")
-                    .append(probeNative(lanIpv4, TARGET_PORT, false)).append('\n')
+                append("Java $targetPort LAN ").append(lanIpv4).append(": ")
+                    .append(probeJava(lanIpv4, targetPort)).append('\n')
+                append("Native $targetPort LAN ").append(lanIpv4).append(": ")
+                    .append(probeNative(lanIpv4, targetPort, false)).append('\n')
             } else {
                 append("Java 50020 LAN: no LAN IPv4 supplied\n")
                 append("Native 50020 LAN: no LAN IPv4 supplied\n")
             }
 
-            append("Java 50020 loopback: ").append(probeJava("127.0.0.1", TARGET_PORT)).append('\n')
-            append("Native 50020 loopback: ").append(probeNative("127.0.0.1", TARGET_PORT, false)).append('\n')
-            append("Native 50020 IPv6 wildcard: ").append(probeNativeIpv6(TARGET_PORT)).append('\n')
+            append("Java $targetPort loopback: ").append(probeJava("127.0.0.1", targetPort)).append('\n')
+            append("Native $targetPort loopback: ").append(probeNative("127.0.0.1", targetPort, false)).append('\n')
+            append("Native $targetPort IPv6 wildcard: ").append(probeNativeIpv6(targetPort)).append('\n')
 
             append("Java ephemeral wildcard: ").append(probeJava("0.0.0.0", 0)).append('\n')
             append("tcp/50020 proc listeners: ").append(findProcListeners("/proc/net/tcp", TARGET_PORT)).append('\n')
@@ -68,6 +68,7 @@ object PortDiagnostics {
 
         cachedText = text
         cachedAtMs = now
+        cachedTargetPort = targetPort
         return text
     }
 
