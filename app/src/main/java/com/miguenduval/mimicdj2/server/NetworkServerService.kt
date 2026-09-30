@@ -219,7 +219,12 @@ class NetworkServerService : Service() {
                     .addService(NetworkTrustGrpcService(diagnostics))
                     .addService(
                         EngineLibraryGrpcService(mediaLibrary) {
-                            NetworkAddress.currentLanIpv4(applicationContext) ?: advertisedHost
+                            val bridgeHost = EaasEndpointConfig.loadBridgeHost(applicationContext)
+                            if (bridgeHost.isNotBlank()) {
+                                bridgeHost
+                            } else {
+                                NetworkAddress.currentLanIpv4(applicationContext) ?: advertisedHost
+                            }
                         }
                     )
                     .addService(MimicEngineSyncService())
@@ -551,12 +556,17 @@ class NetworkServerService : Service() {
                             }
                         }
 
-                        val responseHost = resolveLocalIPv4For(sender?.address)
+                        val localHost = resolveLocalIPv4For(sender?.address)
+                        val advertisedEndpoint = EaasEndpointConfig.advertisedEndpoint(
+                            localHost = localHost,
+                            localGrpcPort = boundPort,
+                            bridgeHost = EaasEndpointConfig.loadBridgeHost(applicationContext)
+                        )
                         val response = EaasDiscovery.buildResponse(
                             token = eaasToken,
                             hostname = "Mimic DJ",
-                            grpcHost = responseHost,
-                            grpcPort = boundPort,
+                            grpcHost = advertisedEndpoint.host,
+                            grpcPort = advertisedEndpoint.grpcPort,
                             softwareVersion = BuildConfig.VERSION_NAME,
                             extra = "_"
                         )
@@ -758,6 +768,15 @@ class NetworkServerService : Service() {
     fun getServerState(): ServerState = serverState
     fun getBoundPort(): Int = boundPort
     fun getBoundInterface(): String? = boundInterface
+
+    fun getAdvertisedEndpoint(): EaasAdvertisedEndpoint {
+        val localHost = boundInterface ?: NetworkAddress.currentLanIpv4(applicationContext) ?: "0.0.0.0"
+        return EaasEndpointConfig.advertisedEndpoint(
+            localHost = localHost,
+            localGrpcPort = boundPort,
+            bridgeHost = EaasEndpointConfig.loadBridgeHost(applicationContext)
+        )
+    }
     fun getHttpBoundPort(): Int = httpBoundPort
     fun getHttpBindError(): String? = httpBindError
     fun getIndexedTrackCount(forceRefresh: Boolean = false): Int =
