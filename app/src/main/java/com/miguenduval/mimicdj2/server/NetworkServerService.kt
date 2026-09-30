@@ -377,9 +377,9 @@ class NetworkServerService : Service() {
             val v6OnlyField = runCatching {
                 OsConstants::class.java.getField("IPV6_V6ONLY").getInt(null)
             }.getOrNull()
-            if (v6OnlyField != null) {
+            if (v6OnlyField != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 Os.setsockoptInt(fd6, OsConstants.IPPROTO_IPV6, v6OnlyField, 0)
-            } else {
+            } else if (v6OnlyField == null) {
                 diagnostics.warn(TAG, "IPV6_V6ONLY constant unavailable; dual-stack behaviour is platform-default")
             }
 
