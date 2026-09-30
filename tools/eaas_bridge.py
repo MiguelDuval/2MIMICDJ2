@@ -71,7 +71,8 @@ class _RelayHandler(socketserver.BaseRequestHandler):
         sockets = (client, target)
         peers = {client: target, target: client}
 
-        while True:
+        half_closed = set()
+        while len(half_closed) < 2:
             readable, _, exceptional = select.select(sockets, (), sockets, 30.0)
             if exceptional:
                 break
@@ -80,15 +81,16 @@ class _RelayHandler(socketserver.BaseRequestHandler):
 
             for source in readable:
                 data = source.recv(forwarder.buffer_size)
-                if not data:
-                    destination = peers[source]
-                    try:
-                        destination.shutdown(socket.SHUT_WR)
-                    except OSError:
-                        pass
-                    return
-
                 destination = peers[source]
+                if not data:
+                    if source not in half_closed:
+                        try:
+                            destination.shutdown(socket.SHUT_WR)
+                        except OSError:
+                            pass
+                        half_closed.add(source)
+                    continue
+
                 destination.sendall(data)
 
 
@@ -250,12 +252,6 @@ def main() -> int:
         http_target_port=args.http_target_port,
     )
 
-    def stop_handler(_signum, _frame) -> None:
-        bridge.stop()
-
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        signal.signal(sig, stop_handler)
-
     bridge.start()
     LOG.info(
         "EAAS bridge active: TCP/%d -> %s:%d; TCP/%d -> %s:%d",
@@ -267,17 +263,20 @@ def main() -> int:
         args.http_target_port,
     )
 
+    stop_event = threading.Event()
+
+    def stop_handler(_signum, _frame) -> None:
+        stop_event.set()
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, stop_handler)
+
     try:
-        while True:
-            signal.pause()
-    except AttributeError:
-        # Windows has no signal.pause(); the bridge remains active until Ctrl-C.
-        try:
-            while True:
-                threading.Event().wait(3600)
-        except KeyboardInterrupt:
-            bridge.stop()
+        while not stop_event.wait(1.0):
+            pass
     except KeyboardInterrupt:
+        pass
+    finally:
         bridge.stop()
 
     return 0
