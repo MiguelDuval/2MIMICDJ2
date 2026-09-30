@@ -83,6 +83,10 @@ jobs:
           node-version: 'lts/*'
           cache: npm
 
+      - name: Test EAAS TCP compatibility bridge
+        if: hashFiles('tools/eaas_bridge.py', 'tools/tests/test_*.py') != ''
+        run: python3 -m unittest discover -s tools/tests -p 'test_*.py' -v
+
       - name: Gradle diagnostics
         if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
         shell: bash
