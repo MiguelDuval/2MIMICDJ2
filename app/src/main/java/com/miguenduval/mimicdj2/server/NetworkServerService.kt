@@ -238,16 +238,32 @@ class NetworkServerService : Service() {
                     throw IllegalStateException("gRPC server returned invalid bound port $actualPort")
                 }
 
-                synchronized(lifecycleLock) {
-                    if (serverState != ServerState.STARTING) {
-                        try { localServer.shutdownNow() } catch (_: Exception) {}
-                        diagnostics.warn(TAG, "Discarding late server start; state=$serverState")
-                        return
+                val httpPort = pairedHttpPort(actualPort)
+                startHttpServer(httpPort, actualPort)
+
+                var published = false
+                StartupPublicationGate.commit(
+                    grpcPort = actualPort,
+                    httpPort = httpPort
+                ) {
+                    synchronized(lifecycleLock) {
+                        if (serverState == ServerState.STARTING) {
+                            grpcServer = localServer
+                            boundPort = actualPort
+                            boundInterface = advertisedHost
+                            serverState = ServerState.RUNNING
+                            published = true
+                        }
                     }
-                    grpcServer = localServer
-                    boundPort = actualPort
-                    boundInterface = advertisedHost
-                    serverState = ServerState.RUNNING
+                }
+
+                if (!published) {
+                    try { localServer.shutdownNow() } catch (_: Exception) {}
+                    try { httpServerFd?.let { Os.close(it) } } catch (_: Exception) {}
+                    httpServerFd = null
+                    httpBoundPort = 0
+                    diagnostics.warn(TAG, "Discarding late server start; state=$serverState")
+                    return
                 }
 
                 diagnostics.info(
@@ -263,17 +279,18 @@ class NetworkServerService : Service() {
                     )
                 }
 
-                val httpPort = pairedHttpPort(actualPort)
-                startHttpServer(httpPort)
-
                 // Do not announce the EAAS device until both paired endpoints are
                 // actually listening. Engine derives HTTP as grpcPort + 10.
                 scope.launch { probeLocalGrpcTcp(advertisedHost, actualPort) }
                 startEaasDiscoveryListener()
-                updateNotification(
-                    "EAAS gRPC + HTTP + discovery on " +
-                        "$advertisedHost:$actualPort / HTTP:$httpPort"
-                )
+                runCatching {
+                    updateNotification(
+                        "EAAS gRPC + HTTP + discovery on " +
+                            "$advertisedHost:$actualPort / HTTP:$httpPort"
+                    )
+                }.onFailure {
+                    diagnostics.warn(TAG, "Foreground notification update failed after server start")
+                }
                 return
             } catch (t: Throwable) {
                 lastFailure = t
