@@ -7,27 +7,28 @@ import java.net.Socket
 import javax.net.ServerSocketFactory
 
 /**
- * Forces the gRPC server transport onto an IPv4 wildcard listener.
+ * Forces the gRPC server transport onto the concrete IPv4 LAN address.
  *
- * This keeps inbound TCP acceptance independent from ConnectivityManager's
- * process-wide network binding. The advertised LAN IPv4 remains the address
- * sent in the EAAS discovery response.
+ * Some Android/vendor network stacks reject wildcard TCP listeners with EPERM.
+ * Binding directly to the interface address avoids that policy while still
+ * exposing the service to Engine OS on the same LAN.
  */
 class GrpcServerSocketFactory(
-    private val diagnostics: ServerDiagnostics
+    private val diagnostics: ServerDiagnostics,
+    private val bindAddress: String
 ) : ServerSocketFactory() {
     override fun createServerSocket(): ServerSocket = LoggingServerSocket()
 
     override fun createServerSocket(port: Int): ServerSocket =
         LoggingServerSocket().also { socket ->
             socket.reuseAddress = true
-            socket.bind(InetSocketAddress("0.0.0.0", port))
+            socket.bind(InetSocketAddress(bindAddress, port))
         }
 
     override fun createServerSocket(port: Int, backlog: Int): ServerSocket =
         LoggingServerSocket().also { socket ->
             socket.reuseAddress = true
-            socket.bind(InetSocketAddress("0.0.0.0", port), backlog)
+            socket.bind(InetSocketAddress(bindAddress, port), backlog)
         }
 
     override fun createServerSocket(
@@ -37,9 +38,7 @@ class GrpcServerSocketFactory(
     ): ServerSocket =
         LoggingServerSocket().also { socket ->
             socket.reuseAddress = true
-            // Deliberately ignore ifAddress: every IPv4 LAN interface is a
-            // valid ingress path for the local Engine Remote Library server.
-            socket.bind(InetSocketAddress("0.0.0.0", port), backlog)
+            socket.bind(InetSocketAddress(bindAddress, port), backlog)
         }
 
     private inner class LoggingServerSocket : ServerSocket() {
