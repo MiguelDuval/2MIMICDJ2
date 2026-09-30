@@ -170,12 +170,18 @@ class NetworkServerService : Service() {
         var lastFailure: Throwable? = null
 
         for (candidatePort in grpcCandidates) {
-            var localServer: Server? = null
-            try {
+            for (bindIpv6Wildcard in listOf(false, true)) {
+                var localServer: Server? = null
+                try {
                 val candidateLabel = if (candidatePort == 0) "ephemeral" else candidatePort.toString()
+                val bindLabel = if (bindIpv6Wildcard) {
+                    "[$candidateLabel] via IPv6 dual-stack wildcard"
+                } else {
+                    "$candidateLabel via LAN IPv4"
+                }
                 diagnostics.info(
                     TAG,
-                    "Trying gRPC bind $advertisedHost:$candidateLabel"
+                    "Trying gRPC bind $advertisedHost:$bindLabel"
                 )
 
                 localServer = OkHttpServerBuilder
@@ -183,7 +189,13 @@ class NetworkServerService : Service() {
                         candidatePort,
                         InsecureServerCredentials.create()
                     )
-                    .socketFactory(GrpcServerSocketFactory(diagnostics, advertisedHost))
+                    .socketFactory(
+                        GrpcServerSocketFactory(
+                            diagnostics = diagnostics,
+                            bindAddress = advertisedHost,
+                            bindIpv6Wildcard = bindIpv6Wildcard
+                        )
+                    )
                     .executor(executor)
                     .addService(NetworkTrustGrpcService(diagnostics))
                     .addService(
@@ -217,6 +229,7 @@ class NetworkServerService : Service() {
                 diagnostics.info(
                     TAG,
                     "EAAS gRPC server listening on $advertisedHost:$actualPort" +
+                        if (bindIpv6Wildcard) " (IPv6 dual-stack listener)" else "" +
                         if (candidatePort == 0) " (ephemeral fallback)" else ""
                 )
                 if (candidatePort != port) {
@@ -242,10 +255,14 @@ class NetworkServerService : Service() {
                 lastFailure = t
                 diagnostics.error(
                     TAG,
-                    "gRPC bind $advertisedHost:$candidatePort failed",
+                    "gRPC bind $advertisedHost:$candidatePort " +
+                        if (bindIpv6Wildcard) "via IPv6 dual-stack failed" else "via LAN IPv4 failed",
                     t
                 )
                 runCatching { localServer?.shutdownNow() }
+            }
+        }
+
             }
         }
 
@@ -260,70 +277,17 @@ class NetworkServerService : Service() {
     }
 
     private fun startHttpServer(port: Int) {
-        val fd = try {
-            // Use the native Android socket API directly. This avoids the Java
-            // ServerSocket path and lets the service bind the exact EAAS pair.
-            Os.socket(
-                OsConstants.AF_INET,
-                OsConstants.SOCK_STREAM,
-                OsConstants.IPPROTO_TCP
-            )
-        } catch (t: Throwable) {
-            httpBindError = t.javaClass.simpleName + ": " + (t.message ?: "no message")
-            diagnostics.error(TAG, "Failed to create native EAAS HTTP socket on $port", t)
-            diagnoseTcpBindFailure(port)
-            throw IllegalStateException(
-                "Native HTTP socket creation failed on $port: " +
-                    t.javaClass.simpleName + ": " + (t.message ?: "no message"),
-                t
-            )
-        }
-
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                Os.setsockoptInt(
-                    fd,
-                    OsConstants.SOL_SOCKET,
-                    OsConstants.SO_REUSEADDR,
-                    1
-                )
-            }
-
-            // EAAS HTTP is paired with gRPC at grpcPort + 10. With the
-            // Android gRPC fallback 50100, the correct HTTP port is 50110.
-            val lanHost = NetworkAddress.currentLanIpv4(applicationContext)
-            val bindHost = lanHost ?: "0.0.0.0"
-            try {
-                Os.bind(fd, InetAddress.getByName(bindHost), port)
-            } catch (first: Throwable) {
-                if (bindHost != "0.0.0.0") {
-                    diagnostics.warn(
-                        TAG,
-                        "HTTP $port bind on $bindHost failed; retrying wildcard: " +
-                            first.javaClass.simpleName + ": " + (first.message ?: "no message")
-                    )
-                    Os.bind(fd, InetAddress.getByName("0.0.0.0"), port)
-                } else {
-                    throw first
-                }
-            }
-            Os.listen(fd, 64)
-        } catch (t: Throwable) {
-            runCatching { Os.close(fd) }
-            httpBindError = t.javaClass.simpleName + ": " + (t.message ?: "no message")
-            diagnostics.error(TAG, "Failed to start native EAAS HTTP server on $port", t)
-            diagnoseTcpBindFailure(port)
-            throw IllegalStateException(
-                "Native HTTP $port bind failed: " +
-                    t.javaClass.simpleName + ": " + (t.message ?: "no message"),
-                t
-            )
-        }
+        val listener = createHttpListener(port)
+        val fd = listener.first
+        val bindMode = listener.second
 
         httpServerFd = fd
         httpBoundPort = port
         httpBindError = null
-        diagnostics.info(TAG, "EAAS HTTP native server listening on $port (gRPC=$boundPort)")
+        diagnostics.info(
+            TAG,
+            "EAAS HTTP native server listening on $port ($bindMode, gRPC=$boundPort)"
+        )
 
         scope.launch {
             while (httpServerFd != null) {
@@ -337,6 +301,111 @@ class NetworkServerService : Service() {
                 }
             }
         }
+    }
+
+    private fun createHttpListener(port: Int): Pair<FileDescriptor, String> {
+        var ipv4Failure: Throwable? = null
+
+        runCatching {
+            val fd = Os.socket(
+                OsConstants.AF_INET,
+                OsConstants.SOCK_STREAM,
+                OsConstants.IPPROTO_TCP
+            )
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    Os.setsockoptInt(
+                        fd,
+                        OsConstants.SOL_SOCKET,
+                        OsConstants.SO_REUSEADDR,
+                        1
+                    )
+                }
+
+                val lanHost = NetworkAddress.currentLanIpv4(applicationContext)
+                val bindHost = lanHost ?: "0.0.0.0"
+                try {
+                    Os.bind(fd, InetAddress.getByName(bindHost), port)
+                } catch (first: Throwable) {
+                    if (bindHost != "0.0.0.0") {
+                        diagnostics.warn(
+                            TAG,
+                            "HTTP $port IPv4 LAN bind on $bindHost failed; retrying IPv4 wildcard: " +
+                                first.javaClass.simpleName + ": " + (first.message ?: "no message")
+                        )
+                        Os.bind(fd, InetAddress.getByName("0.0.0.0"), port)
+                    } else {
+                        throw first
+                    }
+                }
+                Os.listen(fd, 64)
+                return fd to "IPv4 LAN"
+            } catch (t: Throwable) {
+                runCatching { Os.close(fd) }
+                throw t
+            }
+        }.onFailure { ipv4Failure = it }
+
+        // Some vendor builds deny the IPv4 bind for EAAS ports. A dual-stack
+        // IPv6 wildcard socket can still accept IPv4-mapped connections when
+        // IPV6_V6ONLY is disabled, so try the standard endpoint that way.
+        val fd6 = try {
+            Os.socket(
+                OsConstants.AF_INET6,
+                OsConstants.SOCK_STREAM,
+                OsConstants.IPPROTO_TCP
+            )
+        } catch (t: Throwable) {
+            httpBindError = t.javaClass.simpleName + ": " + (t.message ?: "no message")
+            diagnostics.error(TAG, "Failed to create IPv6 EAAS HTTP socket on $port", t)
+            diagnoseTcpBindFailure(port)
+            throw IllegalStateException(
+                "EAAS HTTP $port socket creation failed after IPv4 bind error: " +
+                    (ipv4Failure?.message ?: "unknown IPv4 failure"),
+                t
+            )
+        }
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Os.setsockoptInt(
+                    fd6,
+                    OsConstants.SOL_SOCKET,
+                    OsConstants.SO_REUSEADDR,
+                    1
+                )
+            }
+
+            val v6OnlyField = runCatching {
+                OsConstants::class.java.getField("IPV6_V6ONLY").getInt(null)
+            }.getOrNull()
+            if (v6OnlyField != null) {
+                Os.setsockoptInt(fd6, OsConstants.IPPROTO_IPV6, v6OnlyField, 0)
+            } else {
+                diagnostics.warn(TAG, "IPV6_V6ONLY constant unavailable; dual-stack behaviour is platform-default")
+            }
+
+            Os.bind(fd6, InetAddress.getByName("::"), port)
+            Os.listen(fd6, 64)
+        } catch (t: Throwable) {
+            runCatching { Os.close(fd6) }
+            httpBindError = t.javaClass.simpleName + ": " + (t.message ?: "no message")
+            diagnostics.error(TAG, "Failed to start IPv6 dual-stack EAAS HTTP server on $port", t)
+            diagnoseTcpBindFailure(port)
+            throw IllegalStateException(
+                "EAAS HTTP $port bind failed after IPv4 and IPv6 attempts: " +
+                    t.javaClass.simpleName + ": " + (t.message ?: "no message"),
+                t
+            )
+        }
+
+        diagnostics.warn(
+            TAG,
+            "EAAS HTTP $port using IPv6 dual-stack fallback; IPv4 bind failed: " +
+                (ipv4Failure?.javaClass?.simpleName ?: "unknown") + ": " +
+                (ipv4Failure?.message ?: "no message")
+        )
+        return fd6 to "IPv6 dual-stack"
     }
 
     private fun diagnoseTcpBindFailure(targetPort: Int = 50020) {
