@@ -327,7 +327,7 @@ class NetworkServerService : Service() {
         return grpcPort + 10
     }
 
-    private fun startHttpServer(port: Int) {
+    private fun startHttpServer(port: Int, grpcPort: Int = boundPort) {
         val listener = createHttpListener(port)
         val fd = listener.first
         val bindMode = listener.second
@@ -337,7 +337,7 @@ class NetworkServerService : Service() {
         httpBindError = null
         diagnostics.info(
             TAG,
-            "EAAS HTTP native server listening on $port ($bindMode, gRPC=$boundPort)"
+            "EAAS HTTP native server listening on $port ($bindMode, gRPC=$grpcPort)"
         )
 
         scope.launch {
