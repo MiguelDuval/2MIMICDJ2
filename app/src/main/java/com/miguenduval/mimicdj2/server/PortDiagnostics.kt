@@ -22,6 +22,7 @@ object PortDiagnostics {
 
     @Volatile private var cachedAtMs = 0L
     @Volatile private var cachedText: String? = null
+    @Volatile private var cachedTargetPort: Int = DEFAULT_TARGET_PORT
 
     @Synchronized
     fun snapshot(lanIpv4: String? = null, targetPort: Int = DEFAULT_TARGET_PORT): String {
@@ -46,8 +47,8 @@ object PortDiagnostics {
                 append("Native $targetPort LAN ").append(lanIpv4).append(": ")
                     .append(probeNative(lanIpv4, targetPort, false)).append('\n')
             } else {
-                append("Java 50020 LAN: no LAN IPv4 supplied\n")
-                append("Native 50020 LAN: no LAN IPv4 supplied\n")
+                append("Java $targetPort LAN: no LAN IPv4 supplied\n")
+                append("Native $targetPort LAN: no LAN IPv4 supplied\n")
             }
 
             append("Java $targetPort loopback: ").append(probeJava("127.0.0.1", targetPort)).append('\n')
@@ -55,8 +56,8 @@ object PortDiagnostics {
             append("Native $targetPort IPv6 wildcard: ").append(probeNativeIpv6(targetPort)).append('\n')
 
             append("Java ephemeral wildcard: ").append(probeJava("0.0.0.0", 0)).append('\n')
-            append("tcp/50020 proc listeners: ").append(findProcListeners("/proc/net/tcp", TARGET_PORT)).append('\n')
-            append("tcp6/50020 proc listeners: ").append(findProcListeners("/proc/net/tcp6", TARGET_PORT)).append('\n')
+            append("tcp/50020 proc listeners: ").append(findProcListeners("/proc/net/tcp", targetPort)).append('\n')
+            append("tcp6/50020 proc listeners: ").append(findProcListeners("/proc/net/tcp6", targetPort)).append('\n')
 
             append("ip_local_port_range: ")
                 .append(readSysctl("/proc/sys/net/ipv4/ip_local_port_range")).append('\n')
