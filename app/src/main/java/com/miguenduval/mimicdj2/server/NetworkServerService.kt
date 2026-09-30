@@ -144,62 +144,107 @@ class NetworkServerService : Service() {
     }
 
     private fun doStartServerUnsafe(port: Int, iface: String?) {
-        var localServer: Server? = null
-        try {
-            // Resolve the actual LAN address first. Android/vendor builds may
-            // reject wildcard TCP listener binds with EPERM even when the
-            // concrete interface address is allowed.
-            val lanIp = if (iface.isNullOrBlank()) {
-                NetworkAddress.currentLanIpv4(applicationContext)
-            } else iface
-            val advertisedHost = lanIp?.takeUnless { it.isBlank() } ?: "0.0.0.0"
+        // Resolve the concrete LAN address. Android/vendor builds may reject
+        // wildcard listener binds with EPERM even when the interface address
+        // itself is allowed.
+        val lanIp = if (iface.isNullOrBlank()) {
+            NetworkAddress.currentLanIpv4(applicationContext)
+        } else iface
+        val advertisedHost = lanIp?.takeUnless { it.isBlank() }
 
-            // Do not use ConnectivityManager.bindProcessToNetwork(). The gRPC
-            // listener is bound directly to the concrete LAN IPv4 below.
-            diagnostics.info(TAG, "Using concrete LAN bind address $advertisedHost for inbound gRPC")
-            localServer = OkHttpServerBuilder
-                .forPort(
-                    port,
-                    InsecureServerCredentials.create()
-                )
-                .socketFactory(GrpcServerSocketFactory(diagnostics, advertisedHost))
-                .executor(executor)
-                .addService(NetworkTrustGrpcService(diagnostics))
-                .addService(
-                    EngineLibraryGrpcService(mediaLibrary) {
-                        NetworkAddress.currentLanIpv4(applicationContext) ?: "0.0.0.0"
-                    }
-                )
-                .addService(MimicEngineSyncService())
-                .intercept(RpcDiagnosticsInterceptor(diagnostics))
-                .addTransportFilter(GrpcTransportDiagnosticsFilter(diagnostics))
-                .build()
-                .start()
-
-            synchronized(lifecycleLock) {
-                if (serverState != ServerState.STARTING) {
-                    try { localServer.shutdownNow() } catch (_: Exception) {}
-                    diagnostics.warn(TAG, "Discarding late server start; state=$serverState")
-                    return
-                }
-                grpcServer = localServer
-                boundPort = port
-                boundInterface = lanIp
-                serverState = ServerState.RUNNING
-            }
-
-            diagnostics.info(TAG, "EAAS gRPC server listening on $advertisedHost:$port")
-            if (advertisedHost != "0.0.0.0") {
-                scope.launch { probeLocalGrpcTcp(advertisedHost, port) }
-            }
-            startHttpServer()
-            startEaasDiscoveryListener()
-            updateNotification("EAAS gRPC + HTTP + discovery on $advertisedHost:$port")
-        } catch (e: Exception) {
-            diagnostics.error(TAG, "Failed to start EAAS gRPC server", e)
-            handleStartupFailure(e)
+        if (advertisedHost.isNullOrBlank()) {
+            throw IllegalStateException("No concrete LAN IPv4 address available for gRPC bind")
         }
+
+        // Prime GO/Engine OS normally expects EAAS gRPC on 50010. Some Android
+        // vendor kernels can deny that fixed listener even for an unprivileged
+        // app, so keep the standard port as the first choice and automatically
+        // fall back to an ephemeral high port when 50010 is rejected.
+        val grpcCandidates = buildList {
+            add(port)
+            if (port != 50100) add(50100)
+            if (port != 60000) add(60000)
+            add(0) // OS-assigned high port: avoids fixed-port reservations.
+        }
+
+        var lastFailure: Throwable? = null
+
+        for (candidatePort in grpcCandidates) {
+            var localServer: Server? = null
+            try {
+                val candidateLabel = if (candidatePort == 0) "ephemeral" else candidatePort.toString()
+                diagnostics.info(
+                    TAG,
+                    "Trying gRPC bind $advertisedHost:$candidateLabel"
+                )
+
+                localServer = OkHttpServerBuilder
+                    .forPort(
+                        candidatePort,
+                        InsecureServerCredentials.create()
+                    )
+                    .socketFactory(GrpcServerSocketFactory(diagnostics, advertisedHost))
+                    .executor(executor)
+                    .addService(NetworkTrustGrpcService(diagnostics))
+                    .addService(
+                        EngineLibraryGrpcService(mediaLibrary) {
+                            NetworkAddress.currentLanIpv4(applicationContext) ?: advertisedHost
+                        }
+                    )
+                    .addService(MimicEngineSyncService())
+                    .intercept(RpcDiagnosticsInterceptor(diagnostics))
+                    .addTransportFilter(GrpcTransportDiagnosticsFilter(diagnostics))
+                    .build()
+                    .start()
+
+                val actualPort = localServer.port
+                if (actualPort <= 0) {
+                    throw IllegalStateException("gRPC server returned invalid bound port $actualPort")
+                }
+
+                synchronized(lifecycleLock) {
+                    if (serverState != ServerState.STARTING) {
+                        try { localServer.shutdownNow() } catch (_: Exception) {}
+                        diagnostics.warn(TAG, "Discarding late server start; state=$serverState")
+                        return
+                    }
+                    grpcServer = localServer
+                    boundPort = actualPort
+                    boundInterface = advertisedHost
+                    serverState = ServerState.RUNNING
+                }
+
+                diagnostics.info(
+                    TAG,
+                    "EAAS gRPC server listening on $advertisedHost:$actualPort" +
+                        if (candidatePort == 0) " (ephemeral fallback)" else ""
+                )
+                if (candidatePort != port) {
+                    diagnostics.warn(
+                        TAG,
+                        "Standard gRPC port $port unavailable; using fallback $actualPort"
+                    )
+                }
+
+                scope.launch { probeLocalGrpcTcp(advertisedHost, actualPort) }
+                startHttpServer()
+                startEaasDiscoveryListener()
+                updateNotification("EAAS gRPC + HTTP + discovery on $advertisedHost:$actualPort")
+                return
+            } catch (t: Throwable) {
+                lastFailure = t
+                diagnostics.error(
+                    TAG,
+                    "gRPC bind $advertisedHost:$candidatePort failed",
+                    t
+                )
+                runCatching { localServer?.shutdownNow() }
+            }
+        }
+
+        throw lastFailure ?: IllegalStateException("No usable gRPC listener port")
     }
+
     private fun startHttpServer() {
         scope.launch {
             try {
