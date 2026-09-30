@@ -263,9 +263,6 @@ class NetworkServerService : Service() {
             }
         }
 
-            }
-        }
-
         throw lastFailure ?: IllegalStateException("No usable gRPC listener port")
     }
 
