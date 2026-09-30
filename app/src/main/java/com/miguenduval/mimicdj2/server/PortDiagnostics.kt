@@ -36,11 +36,13 @@ object PortDiagnostics {
             append("Java ${targetPort + 1} wildcard: ").append(probeJava("0.0.0.0", targetPort + 1)).append('\n')
             append("Java ${targetPort + 2} wildcard: ").append(probeJava("0.0.0.0", targetPort + 2)).append('\n')
             append("Java 50100 wildcard: ").append(probeJava("0.0.0.0", 50100)).append('\n')
+            append("Java 50110 wildcard: ").append(probeJava("0.0.0.0", 50110)).append('\n')
             append("Java 60000 wildcard: ").append(probeJava("0.0.0.0", 60000)).append('\n')
 
             append("Native $targetPort wildcard: ").append(probeNative("0.0.0.0", targetPort, false)).append('\n')
             append("Native $targetPort wildcard reuseport: ").append(probeNative("0.0.0.0", targetPort, true)).append('\n')
             append("Native ${targetPort + 1} wildcard: ").append(probeNative("0.0.0.0", targetPort + 1, false)).append('\n')
+            append("Native 50110 wildcard: ").append(probeNative("0.0.0.0", 50110, false)).append('\n')
 
             if (!lanIpv4.isNullOrBlank()) {
                 append("Java $targetPort LAN ").append(lanIpv4).append(" (reuse): ")
