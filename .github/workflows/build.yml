@@ -37,7 +37,6 @@ jobs:
         if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
         run: |
           set -euo pipefail
-          # Check if Android SDK is pre-installed on ubuntu-latest
           if [ -d "/usr/lib/android-sdk" ]; then
             echo "ANDROID_HOME=/usr/lib/android-sdk" >> $GITHUB_ENV
             echo "ANDROID_SDK_ROOT=/usr/lib/android-sdk" >> $GITHUB_ENV
@@ -53,24 +52,14 @@ jobs:
             ANDROID_SDK_ROOT="${{ runner.tool_cache }}/android-sdk"
             mkdir -p "$ANDROID_SDK_ROOT"
             cd "$ANDROID_SDK_ROOT"
-            # Download command line tools (use a more recent version)
-            wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip || {
-              echo "Failed to download command line tools"
-              exit 1
-            }
+            wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip
             unzip -q cmdline-tools.zip -d cmdline-tools
             mv cmdline-tools/cmdline-tools cmdline-tools/latest
             rm cmdline-tools.zip
-            # Add to PATH
             echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> $GITHUB_PATH
             echo "$ANDROID_SDK_ROOT/platform-tools" >> $GITHUB_PATH
-            # Accept licenses and install platform
             yes | cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
-            cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools" || {
-              echo "Failed to install Android platform"
-              exit 1
-            }
-            # Set ANDROID_HOME
+            cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
             echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
             echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
             echo "Installed Android SDK at $ANDROID_SDK_ROOT"
@@ -103,35 +92,7 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x ./gradlew
-          echo "=== Gradle Version ==="
           ./gradlew --version
-          echo ""
-          echo "=== Android SDK Environment ==="
-          echo "ANDROID_HOME=${ANDROID_HOME:-not set}"
-          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-not set}"
-          echo ""
-          echo "=== SDK Directory Contents ==="
-          if [ -d "${ANDROID_HOME:-/usr/lib/android-sdk}" ]; then
-            ls -la "${ANDROID_HOME:-/usr/lib/android-sdk}"
-          else
-            echo "SDK directory not found at ${ANDROID_HOME:-/usr/lib/android-sdk}"
-            echo "Checking common locations:"
-            ls -la /usr/lib/android-sdk 2>/dev/null || echo "Not at /usr/lib/android-sdk"
-            ls -la /opt/android-sdk 2>/dev/null || echo "Not at /opt/android-sdk"
-            ls -la /home/runner/android-sdk 2>/dev/null || echo "Not at /home/runner/android-sdk"
-            ls -la /usr/local/android-sdk 2>/dev/null || echo "Not at /usr/local/android-sdk"
-          fi
-
-      - name: Gradle tasks test
-        if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
-        shell: bash
-        env:
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
-          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
-        run: |
-          set -euo pipefail
-          echo "=== Testing Gradle Configuration ==="
-          ./gradlew tasks --all 2>&1 | head -50
 
       - name: Build project
         if: hashFiles('**/gradlew', '**/gradle-wrapper.properties', '**/*.gradle', '**/*.gradle.kts') != ''
@@ -182,6 +143,7 @@ jobs:
           path: ci-artifacts/**
           if-no-files-found: warn
           retention-days: 14
+
       - name: Publish raw debug APK
         if: github.event_name == 'push' && github.ref == 'refs/heads/agent/clean-slate'
         env:
