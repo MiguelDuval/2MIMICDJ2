@@ -29,6 +29,7 @@ import io.grpc.ServerInterceptor
 import io.grpc.ServerTransportFilter
 import io.grpc.InsecureServerCredentials
 import io.grpc.okhttp.OkHttpServerBuilder
+import io.grpc.okhttp.OkHttpChannelBuilder
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -132,6 +133,49 @@ class NetworkServerService : Service() {
             diagnostics.info(TAG, "Phone self-test TCP/$port: OK")
         }.onFailure { e ->
             diagnostics.error(TAG, "Phone self-test TCP/$port failed", e)
+        }
+    }
+
+    /**
+     * Proves the complete local HTTP/2 + gRPC stack, not just the TCP listener.
+     * This is diagnostic only: the request never leaves the phone.
+     */
+    private fun probeLocalGrpcRpc(host: String, port: Int) {
+        scope.launch {
+            var channel: io.grpc.ManagedChannel? = null
+            try {
+                channel = OkHttpChannelBuilder
+                    .forAddress(host, port)
+                    .usePlaintext()
+                    .build()
+
+                val trustResponse =
+                    com.miguenduval.mimicdj2.eaas.networktrust.NetworkTrustServiceGrpc
+                        .newBlockingStub(channel)
+                        .createTrust(
+                            com.miguenduval.mimicdj2.eaas.networktrust.CreateTrustRequest
+                                .getDefaultInstance()
+                        )
+
+                val librariesResponse =
+                    com.miguenduval.mimicdj2.eaas.enginelibrary.v1.EngineLibraryServiceGrpc
+                        .newBlockingStub(channel)
+                        .getLibraries(
+                            com.miguenduval.mimicdj2.eaas.enginelibrary.v1.GetLibrariesRequest
+                                .getDefaultInstance()
+                        )
+
+                diagnostics.info(
+                    TAG,
+                    "Phone self-test gRPC/$port: OK " +
+                        "CreateTrust.granted=" + trustResponse.hasGranted() +
+                        " GetLibraries.count=" + librariesResponse.librariesCount
+                )
+            } catch (t: Throwable) {
+                diagnostics.error(TAG, "Phone self-test gRPC/$port failed", t)
+            } finally {
+                runCatching { channel?.shutdownNow() }
+            }
         }
     }
 
@@ -291,6 +335,7 @@ class NetworkServerService : Service() {
                 // Do not announce the EAAS device until both paired endpoints are
                 // actually listening. Engine derives HTTP as grpcPort + 10.
                 scope.launch { probeLocalGrpcTcp(advertisedHost, actualPort) }
+                probeLocalGrpcRpc(advertisedHost, actualPort)
                 startEaasDiscoveryListener()
                 runCatching {
                     updateNotification(
