@@ -33,6 +33,14 @@ android {
         }
     }
 
+    // This branch intentionally tests Android's legacy target-SDK network policy
+    // for Prime GO compatibility. It is distributed as a sideloaded debug APK,
+    // not through Google Play, so Play's minimum-target lint check is irrelevant
+    // to this hardware-validation build.
+    lint {
+        disable += "ExpiredTargetSdkVersion"
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -74,8 +82,6 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
-
-    
 
     // Networking
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
