@@ -156,16 +156,25 @@ class NetworkServerService : Service() {
             throw IllegalStateException("No concrete LAN IPv4 address available for gRPC bind")
         }
 
-        // Prime GO/Engine OS normally expects EAAS gRPC on 50010. Some Android
-        // vendor kernels can deny that fixed listener even for an unprivileged
-        // app, so keep the standard port as the first choice and automatically
-        // fall back to an ephemeral high port when 50010 is rejected.
-        val grpcCandidates = buildList {
-            add(port)
-            if (port != 50100) add(50100)
-            if (port != 60000) add(60000)
-            add(0) // OS-assigned high port: avoids fixed-port reservations.
+        // In compatibility-bridge mode the gateway has fixed targets:
+        // LAN 50010 -> phone 50100 and LAN 50020 -> phone 50110.
+        // Do not silently switch to another phone port, otherwise discovery
+        // succeeds but the gateway forwards Engine traffic to the wrong place.
+        val bridgeHost = EaasEndpointConfig.loadBridgeHost(applicationContext).trim()
+        val bridgeMode = bridgeHost.isNotEmpty()
+        if (bridgeMode) {
+            diagnostics.info(
+                TAG,
+                "EAAS compatibility bridge enabled at $bridgeHost; " +
+                    "phone targets are fixed to ${EaasServerPortPlan.BRIDGE_GRPC_PORT}/" +
+                    "${EaasServerPortPlan.BRIDGE_HTTP_PORT}"
+            )
         }
+
+        val grpcCandidates = EaasServerPortPlan.grpcCandidates(
+            requestedPort = port,
+            bridgeMode = bridgeMode
+        )
 
         var lastFailure: Throwable? = null
 
