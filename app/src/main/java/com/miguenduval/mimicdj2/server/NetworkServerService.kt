@@ -292,6 +292,7 @@ class NetworkServerService : Service() {
             }
             // If this candidate succeeded, processNetworkBound remains true and
             // is intentionally kept until server shutdown.
+            }
         }
 
         throw lastFailure ?: IllegalStateException("No usable gRPC listener port")
