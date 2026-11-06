@@ -371,7 +371,6 @@ class MainActivity : AppCompatActivity() {
             while (isActive) {
                 val service = serverService
                 if (service != null) {
-                    updateDiagnosticsUI()
                     updateServerUI(service.getServerState())
                 }
                 delay(500)
