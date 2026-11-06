@@ -42,7 +42,7 @@ class NetworkServerService : Service() {
     private val diagnostics = ServerDiagnostics()
     private val scope = CoroutineScope(Dispatchers.IO + Job())
     private var grpcServer: Server? = null
-    private var httpServerFd: FileDescriptor? = null
+    @Volatile private var httpServerFd: FileDescriptor? = null
     @Volatile private var httpBoundPort = 0
     @Volatile private var httpBindError: String? = null
     private var udpListener: java.net.DatagramSocket? = null
@@ -271,6 +271,7 @@ class NetworkServerService : Service() {
 
             for (bindIpv6Wildcard in listOf(false, true)) {
                 var localServer: Server? = null
+                var httpStartedForCandidate = false
                 try {
                 val localAddresses = setOf(advertisedHost, "127.0.0.1", "::1")
                 val candidateLabel = if (candidatePort == 0) "ephemeral" else candidatePort.toString()
@@ -348,12 +349,20 @@ class NetworkServerService : Service() {
                 }
 
                 val httpPort = pairedHttpPort(actualPort)
-                startHttpServer(httpPort, actualPort)
+                startHttpServer(httpPort, advertisedHost, actualPort)
+                httpStartedForCandidate = true
+                val httpProbeStatus = EaasHttpListenerProbe.verify(advertisedHost, httpPort)
+                diagnostics.httpListenerReadiness = "PASS: $httpProbeStatus"
+                diagnostics.info(
+                    TAG,
+                    "EAAS HTTP listener self-test passed at $advertisedHost:$httpPort ($httpProbeStatus)"
+                )
 
                 var published = false
                 StartupPublicationGate.commit(
                     grpcPort = actualPort,
-                    httpPort = httpPort
+                    httpPort = httpPort,
+                    httpReady = true
                 ) {
                     synchronized(lifecycleLock) {
                         if (serverState == ServerState.STARTING) {
@@ -371,9 +380,11 @@ class NetworkServerService : Service() {
                     try { httpServerFd?.let { Os.close(it) } } catch (_: Exception) {}
                     httpServerFd = null
                     httpBoundPort = 0
+                    diagnostics.httpListenerReadiness = "DISCARDED: service state changed before publication"
                     diagnostics.warn(TAG, "Discarding late server start; state=$serverState")
                     return
                 }
+                httpStartedForCandidate = false
 
                 diagnostics.info(
                     TAG,
@@ -411,6 +422,15 @@ class NetworkServerService : Service() {
                     t
                 )
                 runCatching { localServer?.shutdownNow() }
+                if (httpStartedForCandidate) {
+                    val httpFailure = t.javaClass.simpleName + ": " + (t.message ?: "no message")
+                    httpBindError = httpFailure
+                    diagnostics.httpListenerReadiness = "FAIL: $httpFailure"
+                    runCatching { httpServerFd?.let { Os.close(it) } }
+                    httpServerFd = null
+                    httpBoundPort = 0
+                    diagnostics.error(TAG, "Closed HTTP listener after its readiness check failed", t)
+                }
                 if (candidatePort == port && bindIpv6Wildcard) {
                     // The standard endpoint failed on both address families.
                     // Capture the kernel port-policy evidence before falling back.
@@ -437,23 +457,27 @@ class NetworkServerService : Service() {
         return grpcPort + 10
     }
 
-    private fun startHttpServer(port: Int, grpcPort: Int = boundPort) {
-        val listener = createHttpListener(port)
+    private fun startHttpServer(port: Int, bindHost: String, grpcPort: Int = boundPort) {
+        val listener = createHttpListener(port, bindHost)
         val fd = listener.first
         val bindMode = listener.second
 
         httpServerFd = fd
         httpBoundPort = port
         httpBindError = null
+        diagnostics.httpListenerAddress = bindHost
+        diagnostics.httpListenerPort = port
+        diagnostics.httpListenerReadiness = "BOUND: waiting for GET /ping"
         diagnostics.info(
             TAG,
-            "EAAS HTTP native server listening on $port ($bindMode, gRPC=$grpcPort)"
+            "EAAS HTTP native server listening on $bindHost:$port ($bindMode, gRPC=$grpcPort)"
         )
 
         scope.launch {
             while (httpServerFd != null) {
                 try {
                     val clientFd = Os.accept(fd, null)
+                    diagnostics.httpAcceptedConnections.incrementAndGet()
                     executor.execute { handleHttpClient(clientFd) }
                 } catch (t: Throwable) {
                     if (httpServerFd != null) {
@@ -464,7 +488,9 @@ class NetworkServerService : Service() {
         }
     }
 
-    private fun createHttpListener(port: Int): Pair<FileDescriptor, String> {
+    private fun createHttpListener(port: Int, bindHost: String): Pair<FileDescriptor, String> {
+        val requestedBindHost = bindHost.trim().takeIf { it.isNotEmpty() }
+            ?: throw IllegalArgumentException("HTTP listener bind host is blank")
         var ipv4Failure: Throwable? = null
 
         runCatching {
@@ -474,15 +500,21 @@ class NetworkServerService : Service() {
                 OsConstants.IPPROTO_TCP
             )
             try {
-                val lanHost = NetworkAddress.currentLanIpv4(applicationContext)
-                val bindHost = lanHost ?: "0.0.0.0"
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    Os.setsockoptInt(
+                        fd,
+                        OsConstants.SOL_SOCKET,
+                        OsConstants.SO_REUSEADDR,
+                        1
+                    )
+                }
                 try {
-                    Os.bind(fd, InetAddress.getByName(bindHost), port)
+                    Os.bind(fd, InetAddress.getByName(requestedBindHost), port)
                 } catch (first: Throwable) {
-                    if (bindHost != "0.0.0.0") {
+                    if (requestedBindHost != "0.0.0.0") {
                         diagnostics.warn(
                             TAG,
-                            "HTTP $port IPv4 LAN bind on $bindHost failed; retrying IPv4 wildcard: " +
+                            "HTTP $port IPv4 bind on $requestedBindHost failed; retrying IPv4 wildcard: " +
                                 first.javaClass.simpleName + ": " + (first.message ?: "no message")
                         )
                         Os.bind(fd, InetAddress.getByName("0.0.0.0"), port)
@@ -802,7 +834,11 @@ class NetworkServerService : Service() {
         boundPort = 0
         boundInterface = null
         httpBoundPort = 0
-        httpBindError = null
+        if (diagnostics.httpListenerReadiness?.startsWith("FAIL:") != true) {
+            diagnostics.httpListenerReadiness = "STOPPED"
+            diagnostics.httpListenerPort = 0
+            diagnostics.httpListenerAddress = null
+        }
         primeGoPortsProbed = false
         primeGoHighPortScanStarted = false
         NetworkAddress.clearProcessBinding(applicationContext)
