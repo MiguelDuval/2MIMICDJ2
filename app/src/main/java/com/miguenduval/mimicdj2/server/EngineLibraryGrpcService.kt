@@ -36,7 +36,8 @@ import io.grpc.stub.StreamObserver
 class EngineLibraryGrpcService(
     private val library: MediaLibrary,
     private val serverHost: () -> String,
-    private val serverHttpPort: () -> Int = { MediaLibrary.HTTP_PORT }
+    private val serverHttpPort: () -> Int = { MediaLibrary.HTTP_PORT },
+    private val onTrackLookup: (String, MediaLibrary.Track?, String?) -> Unit = { _, _, _ -> }
 ) : EngineLibraryServiceGrpc.EngineLibraryServiceImplBase() {
 
     companion object {
@@ -151,21 +152,26 @@ class EngineLibraryGrpcService(
         request: GetTrackRequest,
         responseObserver: StreamObserver<GetTrackResponse>
     ) {
-        val track = library.findById(request.trackId)
+        val requestedId = request.trackId.trim()
+        val track = library.findByReference(requestedId)
         if (track == null) {
+            onTrackLookup(requestedId, null, null)
             responseObserver.onNext(GetTrackResponse.getDefaultInstance())
             responseObserver.onCompleted()
             return
         }
 
         val host = serverHost().ifBlank { "0.0.0.0" }
-        val url = track.httpUrl(host, serverHttpPort())
+        val httpPort = serverHttpPort()
+        val url = track.httpUrl(host, httpPort)
+        val fileSize = library.fileSize(track).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        onTrackLookup(requestedId, track, url)
 
         val blob = TrackBlob.newBuilder()
             .setUrl(
                 TrackBlobUrl.newBuilder()
                     .setUrl(url)
-                    .setFileSize(track.sizeBytes.coerceAtMost(0xFFFF_FFFFL).toInt())
+                    .setFileSize(fileSize)
                     .build()
             )
             .build()
