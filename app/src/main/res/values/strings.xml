@@ -22,6 +22,10 @@
     <string name="session_title">Session</string>
     <string name="library_title">Library</string>
     <string name="file_server_title">File Server</string>
+    <string name="select_music_folder">Select music folder</string>
+    <string name="use_all_device_music">Use all device music</string>
+    <string name="media_folder_all">Source: all audio indexed by Android</string>
+    <string name="media_folder_selected">Source: selected folder — %1$s</string>
     <string name="log_title">Event Log</string>
     <string name="no_network_info">No active Wi-Fi network</string>
     <string name="binding">Binding…</string>
