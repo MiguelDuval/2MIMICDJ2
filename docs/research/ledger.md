@@ -66,3 +66,18 @@
 
 
 ## 2026-11-06 | DeathCamel58 Engine Networking + icedream/go-stagelinq EAAS beacon implementation | EAAS identity lifecycle | The EAAS 16-byte token is the identity used by Engine to distinguish a returning library from a library process that restarted. A stable token should be retained for the same installed library identity rather than regenerated on every Android Service recreation. | D | High for reference implementation semantics; target capture does not yet test restart behavior | Source review of Beacon token documentation/implementation | Persist the token in app-private preferences and restore it on service restart. Implemented on agent/clean-slate with token hex codec tests. | Does Prime GO retain library state across app/server restarts when the token remains stable?
+
+
+## 2026-11-06 | Re-analysis of the two Prime GO packet-list captures | Target Prime GO / PC Engine Desktop
+
+- `denonlog.txt`: Prime GO opens TCP/50020, GET /ping -> 200; then TCP/50010 HTTP/2/gRPC; calls NetworkTrustService/CreateTrust, EventStream, GetLibrary and GetTracks. Evidence A.
+- `denonlog2.txt`: Prime GO calls EventStream/GetLibrary/GetTracks/GetTrack on TCP/50010 and then GET /download/<URL-encoded-key> on TCP/50020, receiving HTTP 200 and a large audio stream. No /ping or CreateTrust is listed. Evidence A.
+- Packet-list exports do not contain raw protobuf DATA payload bytes, so they cannot resolve CreateTrust response numbering or GetTrack response field mapping.
+- Consequence: Trust and /ping are not assumed on every browse session; target-specific 50010/50020 path is confirmed; field-level schema questions remain open until raw pcapng DATA is inspected.
+
+## 2026-11-06 | Correct interpretation of the 2026-09-30 phone diagnostics | Android phone + Prime GO
+
+- The report's `Prime GO TCP/50010: CONNECTED` is a phone-initiated outbound probe to the Prime GO's own TCP/50010, not an inbound Prime GO connection.
+- The old `Raw TCP accepts: 1` was the phone's local self-test. Current app diagnostics split local self-tests and external peers.
+- The response advertised the phone at 50100 without a gateway host configured; no true Prime GO -> phone/gateway gRPC session was observed. Evidence A.
+- Consequence: that test does not validate the compatibility gateway. A real test must advertise the PC's LAN IP and show external TCP/gRPC activity.

@@ -13,6 +13,17 @@ if "%~1"=="" (
 
 set "PHONE_IP=%~1"
 
+rem netsh interface portproxy depends on the Windows IP Helper service.
+sc query iphlpsvc | findstr /I "RUNNING" >nul
+if errorlevel 1 (
+  echo Starting Windows IP Helper service...
+  net start iphlpsvc
+  if errorlevel 1 (
+    echo WARNING: IP Helper could not be started. Portproxy may not function.
+  )
+)
+
+
 echo Configuring Engine-compatible TCP forwarding to %PHONE_IP%...
 echo.
 echo   PC TCP 50010  ^>  PHONE TCP 50100

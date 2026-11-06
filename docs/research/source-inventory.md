@@ -12,9 +12,10 @@
 
 | Source | URL | Scope/Device/Version | Access Date | Evidence Class | Notes |
 |--------|-----|---------------------|-------------|----------------|-------|
-| Denon Engine Networking | https://deathcamel58.github.io/denon-reverse-engineering/engine-networking.html | SC6000, Engine OS 5.0.4 | 2026-09-27 | D | **Warning**: Public assumptions about ports/services can diverge from actual device behavior |
-| Denon Engine gRPC Reference | https://deathcamel58.github.io/denon-reverse-engineering/engine-grpc.html | SC6000, Engine OS 5.0.4 | 2026-09-27 | D | gRPC service definitions — scope must be verified for Prime GO |
-| denon-reverse-engineering GitHub | https://github.com/deathcamel58/denon-reverse-engineering | Various Engine OS devices | 2026-09-27 | D | Source repository for above docs |
+| DeathCamel58 reverse-engineering corpus | https://deathcamel58.github.io/denon-reverse-engineering/starter-topic.html | Pinned source commit 0f7966516609e3de2b71e4aef21625bd8d94c57c; networking/gRPC chiefly SC6000/JP13 Engine OS 5.0.4; separate Prime GO/JP11 OS/UART pages | 2026-11-06 | D | Device/version scope is mandatory. See docs/research/deathcamel58-reverse-engineering-findings-2026-11-06.md. |
+| Engine Networking | https://deathcamel58.github.io/denon-reverse-engineering/engine-networking.html | SC6000/JP13 Engine OS 5.0.4 live sockets + binary analysis | 2026-11-06 | D | EngineSync observed on SC6000 TCP50010; EAAS service port unresolved; transient high ports; separate license callback 41401. |
+| Engine gRPC Reference | https://deathcamel58.github.io/denon-reverse-engineering/engine-grpc.html | SC6000/JP13 Engine OS 5.0.4 reconstructed schema | 2026-11-06 | D | GetTracks/SearchTracks/EventStream are server-streaming in the reconstruction; some field semantics remain uncertain. |
+| Engine Library / OS / UART / Updating | https://deathcamel58.github.io/denon-reverse-engineering/engine-library.html ; https://deathcamel58.github.io/denon-reverse-engineering/engine-os.html ; https://deathcamel58.github.io/denon-reverse-engineering/uart.html ; https://deathcamel58.github.io/denon-reverse-engineering/updating.html | Engine Library schema reconstruction plus Prime GO JP11 and SC6000 JP13 platform reference | 2026-11-06 | D | Use the OS page to distinguish JP11 vs JP13; UART may identify the exact Prime GO build. No firmware flashing/unlocking is part of this project. |
 
 ## Open-Source Protocol Implementations
 

@@ -112,3 +112,18 @@ DeathCamel58's Engine Networking / Engine gRPC research is principally from SC60
 Do not substitute those SC6000 findings for Prime GO facts. The direct Prime GO capture dated 2026-09-29 shows EngineLibrary RPC on TCP/50010 and HTTP audio download on TCP/50020. This target-specific capture remains authoritative for this project.
 
 The Prime GO's exact Engine OS/firmware version is still missing from the profile and must be recorded before making any version-specific protocol change.
+
+
+## 2026-09-30 physical test snapshot — Android host + Prime GO
+
+Directly observed in the latest supplied 2MIMICDJ2 diagnostics (Evidence A):
+- Prime GO LAN IPv4: `10.93.187.191`.
+- Android phone LAN IPv4: `10.93.187.7`, Wi-Fi interface `wlan1`.
+- Prime GO sends EAAS discovery from UDP source port `38954` to destination UDP `11224`.
+- App replies 6/6 and advertised `grpc://10.93.187.7:50100`.
+- Android refused bind to TCP 50010/50011 with EPERM; 50100 and 50110 were permitted.
+- No external gRPC transport/RPC reached the phone in that test.
+- The old `Raw TCP accepts: 1` was the phone's own self-test. The old `Prime GO TCP/50010: CONNECTED` label described an outbound probe from the phone to the Prime GO's TCP/50010, not an inbound Prime GO-to-phone connection.
+- Exact Prime GO Engine OS/firmware build and router/AP isolation settings remain unknown.
+
+These IP addresses are a test snapshot and may change on a later Wi-Fi session.

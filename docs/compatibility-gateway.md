@@ -91,18 +91,31 @@ The same mapping is used by GetTrack: the returned HTTP URL points at the
 gateway's standard TCP 50020, which the gateway forwards to the phone's paired
 HTTP port.
 
+## Hardware-validation status
+
+The gateway implementation is present, but a real Prime GO session through it has **not yet been validated**. The 2026-09-30 test advertised the phone's 50100 directly and therefore did not exercise this path.
+
+On Windows, run `tools\\configure_eaas_bridge.cmd PHONE_IP` from an Administrator Command Prompt. The helper creates TCP 50010 -> phone 50100 and TCP 50020 -> phone 50110 mappings and inbound firewall rules. Windows' IP Helper service (`iphlpsvc`) must be running for `netsh interface portproxy`; verify the mappings with:
+
+```cmd
+netsh interface portproxy show v4tov4
+netstat -ano | findstr ":50010 :50020"
+```
+
+Then enter the PC's LAN IPv4 address in the Android app's bridge-host field. Do not enter the phone IP in that field. Keep Prime GO, PC and phone on the same LAN with guest/AP isolation disabled.
+
 ## Current limitations
 
 This is a compatibility gateway, not a claim that stock Android can bind the
 Engine-standard ports directly.
 
-The current app still needs the next hardware-validation pass for:
+The next real-device pass must confirm:
 
-1. NetworkTrustService/CreateTrust through the gateway;
-2. GetLibrary / GetTracks against the real Prime GO;
-3. GetTrack blob URL;
-4. /download/<encoded-key> over the forwarded TCP 50020 stream;
-5. actual track loading and playback.
+1. Prime GO opens the advertised gateway TCP/50010 endpoint;
+2. required Trust/EngineLibrary RPCs reach the phone through forwarding;
+3. GetLibrary/GetTracks list the phone's media inventory;
+4. GetTrack returns a URL pointing to gateway TCP/50020;
+5. Prime GO GET /download receives the complete file and the track loads/plays.
 
 The repository's direct packet-capture evidence already establishes the target
 transport sequence; the gateway removes the Android kernel port restriction
