@@ -5,6 +5,8 @@ import android.Manifest
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.provider.DocumentsContract
 import android.content.ServiceConnection
 import android.os.Bundle
 import android.text.Editable
@@ -15,6 +17,7 @@ import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Observer
 import androidx.lifecycle.lifecycleScope
@@ -23,6 +26,7 @@ import com.miguenduval.mimicdj2.network.NetworkDiagnostics
 import com.miguenduval.mimicdj2.R
 import com.miguenduval.mimicdj2.server.EaasEndpointConfig
 import com.miguenduval.mimicdj2.server.NetworkServerService
+import com.miguenduval.mimicdj2.server.MediaLibrary
 import com.miguenduval.mimicdj2.server.ServerDiagnostics
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -45,11 +49,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvDiscoveryInfo: TextView
     private lateinit var tvSessionInfo: TextView
     private lateinit var tvLibraryInfo: TextView
+    private lateinit var tvMediaFolder: TextView
     private lateinit var tvFileServerInfo: TextView
     private lateinit var tvEventLog: TextView
     private lateinit var btnToggleServer: Button
     private lateinit var btnCopyDiagnostics: Button
     private lateinit var btnClearLogs: Button
+    private lateinit var btnSelectMediaFolder: Button
+    private lateinit var btnUseAllDeviceMusic: Button
     private lateinit var etBridgeHost: EditText
 
     // Services
@@ -59,6 +66,40 @@ class MainActivity : AppCompatActivity() {
     private var periodicUiJob: Job? = null
     private var pendingServerStartAfterLocalNetworkPermission = false
     private var pendingServerStartAfterServiceBinding = false
+
+    private val mediaFolderPicker = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            val persisted = runCatching {
+                contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }.isSuccess
+
+            if (persisted) {
+                getSharedPreferences(MediaLibrary.PREFS_NAME, Context.MODE_PRIVATE)
+                    .edit()
+                    .putString(MediaLibrary.KEY_SELECTED_TREE_URI, uri.toString())
+                    .apply()
+                val count = runCatching { serverService?.refreshMediaLibrary() }.getOrNull()
+                updateMediaFolderLabel()
+                Toast.makeText(
+                    this,
+                    count?.let { "Folder connected: $it audio tracks" }
+                        ?: "Folder access saved; start the server to scan it",
+                    Toast.LENGTH_LONG
+                ).show()
+            } else {
+                Toast.makeText(
+                    this,
+                    "Android did not grant persistent access to this folder",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, service: IBinder) {
@@ -108,19 +149,25 @@ class MainActivity : AppCompatActivity() {
         tvDiscoveryInfo = findViewById(R.id.tvDiscoveryInfo)
         tvSessionInfo = findViewById(R.id.tvSessionInfo)
         tvLibraryInfo = findViewById(R.id.tvLibraryInfo)
+        tvMediaFolder = findViewById(R.id.tvMediaFolder)
         tvFileServerInfo = findViewById(R.id.tvFileServerInfo)
         tvEventLog = findViewById(R.id.tvEventLog)
         btnToggleServer = findViewById(R.id.btnToggleServer)
         btnCopyDiagnostics = findViewById(R.id.btnCopyDiagnostics)
         btnClearLogs = findViewById(R.id.btnClearLogs)
+        btnSelectMediaFolder = findViewById(R.id.btnSelectMediaFolder)
+        btnUseAllDeviceMusic = findViewById(R.id.btnUseAllDeviceMusic)
         etBridgeHost = findViewById(R.id.etBridgeHost)
         etBridgeHost.setText(EaasEndpointConfig.loadBridgeHost(this))
+        updateMediaFolderLabel()
     }
 
     private fun setupClickListeners() {
         btnToggleServer.setOnClickListener { toggleServer() }
         btnCopyDiagnostics.setOnClickListener { copyDiagnostics() }
         btnClearLogs.setOnClickListener { clearLogs() }
+        btnSelectMediaFolder.setOnClickListener { mediaFolderPicker.launch(null) }
+        btnUseAllDeviceMusic.setOnClickListener { useAllDeviceMusic() }
         etBridgeHost.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
@@ -374,6 +421,40 @@ class MainActivity : AppCompatActivity() {
     private fun clearLogs() {
         serverService?.getDiagnostics()?.clearLogs()
         tvEventLog.text = "[Logs cleared]"
+    }
+
+    private fun updateMediaFolderLabel() {
+        val selected = getSharedPreferences(MediaLibrary.PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(MediaLibrary.KEY_SELECTED_TREE_URI, null)
+        tvMediaFolder.text = if (selected.isNullOrBlank()) {
+            getString(R.string.media_folder_all)
+        } else {
+            val uri = Uri.parse(selected)
+            val documentId = runCatching { DocumentsContract.getTreeDocumentId(uri) }
+                .getOrDefault(uri.lastPathSegment.orEmpty())
+            val folderName = documentId.substringAfter(':', documentId)
+            getString(R.string.media_folder_selected, folderName)
+        }
+    }
+
+    private fun useAllDeviceMusic() {
+        val preferences = getSharedPreferences(MediaLibrary.PREFS_NAME, Context.MODE_PRIVATE)
+        preferences.getString(MediaLibrary.KEY_SELECTED_TREE_URI, null)?.let { selected ->
+            runCatching {
+                contentResolver.releasePersistableUriPermission(
+                    Uri.parse(selected),
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+        }
+        preferences.edit().remove(MediaLibrary.KEY_SELECTED_TREE_URI).apply()
+        val count = runCatching { serverService?.refreshMediaLibrary() }.getOrNull()
+        updateMediaFolderLabel()
+        Toast.makeText(
+            this,
+            count?.let { "Using all device audio: $it tracks" } ?: "Using all indexed device audio",
+            Toast.LENGTH_SHORT
+        ).show()
     }
 
     private fun formatTime(timestamp: Long): String {
