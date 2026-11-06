@@ -887,7 +887,8 @@ class NetworkServerService : Service() {
 }
 
 private class RpcDiagnosticsInterceptor(
-    private val diagnostics: ServerDiagnostics
+    private val diagnostics: ServerDiagnostics,
+    private val localAddresses: Set<String>
 ) : ServerInterceptor {
     override fun <ReqT : Any?, RespT : Any?> interceptCall(
         call: ServerCall<ReqT, RespT>,
@@ -895,25 +896,33 @@ private class RpcDiagnosticsInterceptor(
         next: ServerCallHandler<ReqT, RespT>
     ): ServerCall.Listener<ReqT> {
         val method = call.methodDescriptor.fullMethodName
-        diagnostics.rpcCount.incrementAndGet()
-        diagnostics.observedRpcMethods.add(method)
-        diagnostics.lastClientContact = System.currentTimeMillis()
         val remote = call.attributes.get(Grpc.TRANSPORT_ATTR_REMOTE_ADDR)
-        diagnostics.lastClientIp = (remote as? InetSocketAddress)?.address?.hostAddress ?: remote?.toString()
-        diagnostics.info("EAAS-RPC", "RPC $method from ${diagnostics.lastClientIp ?: "unknown"}")
+        val remoteIp = (remote as? InetSocketAddress)?.address?.hostAddress ?: remote?.toString()
+        val local = NetworkAddress.isLocalPeerAddress(remoteIp, localAddresses)
+        diagnostics.recordGrpcRpc(method, remoteIp, local)
+        diagnostics.info(
+            "EAAS-RPC",
+            "RPC $method from " + (remoteIp ?: "unknown") +
+                if (local) " (local self-test)" else " (external peer)"
+        )
         return next.startCall(call, headers)
     }
 }
 
 private class GrpcTransportDiagnosticsFilter(
-    private val diagnostics: ServerDiagnostics
+    private val diagnostics: ServerDiagnostics,
+    private val localAddresses: Set<String>
 ) : ServerTransportFilter() {
     override fun transportReady(transportAttrs: Attributes): Attributes {
-        diagnostics.connectionsOpened.incrementAndGet()
-        diagnostics.lastClientContact = System.currentTimeMillis()
         val remote = transportAttrs.get(Grpc.TRANSPORT_ATTR_REMOTE_ADDR)
-        diagnostics.lastClientIp = (remote as? InetSocketAddress)?.address?.hostAddress ?: remote?.toString()
-        diagnostics.info("EAAS-Transport", "gRPC transport ready from ${diagnostics.lastClientIp ?: remote ?: "unknown"}")
+        val remoteIp = (remote as? InetSocketAddress)?.address?.hostAddress ?: remote?.toString()
+        val local = NetworkAddress.isLocalPeerAddress(remoteIp, localAddresses)
+        diagnostics.recordGrpcTransport(remoteIp, local)
+        diagnostics.info(
+            "EAAS-Transport",
+            "gRPC transport ready from " + (remoteIp ?: remote ?: "unknown") +
+                if (local) " (local self-test)" else " (external peer)"
+        )
         return transportAttrs
     }
 
