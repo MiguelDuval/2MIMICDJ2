@@ -78,10 +78,36 @@ class NetworkServerService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        eaasToken = com.miguenduval.mimicdj2.network.EaasDiscovery.newToken()
+        eaasToken = loadStableEaasToken()
         mediaLibrary = MediaLibrary(this)
         httpFileServer = EaasHttpFileServer(mediaLibrary, diagnostics)
         diagnostics.info(TAG, "Service created")
+    }
+
+    /**
+     * Engine uses the EAAS token to distinguish a returning library from a
+     * library process that has restarted. Keep one identity per app install
+     * instead of generating a new token every time this Service is recreated.
+     */
+    private fun loadStableEaasToken(): ByteArray {
+        val preferences = getSharedPreferences("eaas_identity", Context.MODE_PRIVATE)
+        val stored = preferences.getString("token", null)
+        val restored = stored?.let { EaasDiscovery.tokenFromHex(it) }
+        if (restored != null) {
+            diagnostics.info(TAG, "Restored stable EAAS identity token")
+            return restored
+        }
+
+        val created = EaasDiscovery.newToken()
+        val saved = preferences.edit()
+            .putString("token", EaasDiscovery.tokenToHex(created))
+            .commit()
+        if (saved) {
+            diagnostics.info(TAG, "Created and persisted stable EAAS identity token")
+        } else {
+            diagnostics.warn(TAG, "Could not persist EAAS identity token; identity may change after process restart")
+        }
+        return created
     }
 
     override fun onBind(intent: Intent?): IBinder {
