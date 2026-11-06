@@ -22,6 +22,21 @@ class EaasDiscoveryTest {
     }
 
     @Test
+    fun token_hex_round_trip_preserves_all_16_bytes() {
+        val token = ByteArray(16) { (it * 13 + 7).toByte() }
+        val encoded = EaasDiscovery.tokenToHex(token)
+
+        assertEquals(32, encoded.length)
+        assertArrayEquals(token, EaasDiscovery.tokenFromHex(encoded))
+    }
+
+    @Test
+    fun invalid_persisted_token_is_rejected() {
+        assertEquals(null, EaasDiscovery.tokenFromHex("short"))
+        assertEquals(null, EaasDiscovery.tokenFromHex("z".repeat(32)))
+    }
+
+    @Test
     fun response_contains_expected_header_token_and_fields() {
         val token = ByteArray(16) { it.toByte() }
         val response = EaasDiscovery.buildResponse(
