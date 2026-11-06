@@ -8,11 +8,18 @@ option java_outer_classname = "NetworkTrustProto";
 
 message CreateTrustRequest {
   optional string ed25519_pk = 1;
+  // The Go reference names field 2 wireguard_port. DeathCamel's SC6000 5.0.4
+  // binary analysis only confirms a varint at field 2; its meaning is not
+  // confirmed for the Prime GO target.
   optional uint32 wireguard_port = 2;
   optional string device_name = 3;
 }
 
 message CreateTrustResponse {
+  // Current encoding follows icedream/go-stagelinq (oneof fields 1/2/3).
+  // DeathCamel's SC6000 5.0.4 reconstruction reports one message at field 3,
+  // but the nested outcome mapping is explicitly uncertain. Do not change
+  // this target implementation without raw Prime GO protobuf payload bytes.
   oneof response {
     CreateTrustGranted granted = 1;
     CreateTrustDenied denied = 2;

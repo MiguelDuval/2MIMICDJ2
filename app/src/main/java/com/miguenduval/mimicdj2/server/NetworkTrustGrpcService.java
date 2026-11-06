@@ -34,13 +34,23 @@ public final class NetworkTrustGrpcService extends NetworkTrustServiceGrpc.Netwo
                         + " wireguard_port=" + (wireguardPort.isEmpty() ? "none" : wireguardPort)
                         + (localSelfTest ? " (local self-test)" : " (external peer)"));
 
-        responseObserver.onNext(
-                CreateTrustResponse.newBuilder()
-                        .setGranted(
-                                com.miguenduval.mimicdj2.eaas.networktrust.CreateTrustGranted
-                                        .newBuilder()
-                                        .build())
-                        .build());
+        CreateTrustResponse response = CreateTrustResponse.newBuilder()
+                .setGranted(
+                        com.miguenduval.mimicdj2.eaas.networktrust.CreateTrustGranted
+                                .newBuilder()
+                                .build())
+                .build();
+
+        byte[] requestBytes = request.toByteArray();
+        byte[] responseBytes = response.toByteArray();
+        diagnostics.info(
+                "NetworkTrustGrpcService",
+                "CreateTrust protobuf shape: requestBytes=" + requestBytes.length
+                        + " requestTags=" + ProtobufWireTagSummary.summarize(requestBytes)
+                        + " responseBytes=" + responseBytes.length
+                        + " responseTags=" + ProtobufWireTagSummary.summarize(responseBytes));
+
+        responseObserver.onNext(response);
         responseObserver.onCompleted();
     }
 }
