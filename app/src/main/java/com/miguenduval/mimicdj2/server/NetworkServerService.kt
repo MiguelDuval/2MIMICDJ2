@@ -37,6 +37,7 @@ import java.io.FileDescriptor
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class NetworkServerService : Service() {
     private val diagnostics = ServerDiagnostics()
@@ -148,6 +149,54 @@ class NetworkServerService : Service() {
         runCatching { updateNotification("Starting EAAS server…") }
             .onFailure { diagnostics.error(TAG, "Foreground promotion failed; continuing with LAN server startup", it) }
         scope.launch { doStartServer(port, iface) }
+    }
+
+    /**
+     * Verifies the actual Engine gRPC handshake methods before EAAS discovery is
+     * announced. This is a startup readiness gate, not a user-facing diagnostic.
+     */
+    private fun verifyGrpcReadiness(host: String, port: Int) {
+        var channel: io.grpc.ManagedChannel? = null
+        try {
+            channel = OkHttpChannelBuilder
+                .forAddress(host, port)
+                .usePlaintext()
+                .build()
+
+            val trustResponse =
+                com.miguenduval.mimicdj2.eaas.networktrust.NetworkTrustServiceGrpc
+                    .newBlockingStub(channel)
+                    .withDeadlineAfter(3, TimeUnit.SECONDS)
+                    .createTrust(
+                        com.miguenduval.mimicdj2.eaas.networktrust.CreateTrustRequest
+                            .newBuilder()
+                            .setDeviceName(NetworkTrustGrpcService.INTERNAL_SELF_TEST_DEVICE_NAME)
+                            .build()
+                    )
+            check(trustResponse.hasGranted()) {
+                "NetworkTrust CreateTrust did not return a granted response"
+            }
+
+            val librariesResponse =
+                com.miguenduval.mimicdj2.eaas.enginelibrary.v1.EngineLibraryServiceGrpc
+                    .newBlockingStub(channel)
+                    .withDeadlineAfter(3, TimeUnit.SECONDS)
+                    .getLibraries(
+                        com.miguenduval.mimicdj2.eaas.enginelibrary.v1.GetLibrariesRequest
+                            .getDefaultInstance()
+                    )
+            check(librariesResponse.librariesCount > 0) {
+                "EngineLibrary GetLibraries returned no libraries"
+            }
+        } catch (failure: Throwable) {
+            throw IllegalStateException(
+                "EAAS gRPC handshake readiness check failed at $host:$port: " +
+                    (failure.message ?: failure.javaClass.simpleName),
+                failure
+            )
+        } finally {
+            runCatching { channel?.shutdownNow() }
+        }
     }
 
     private fun doStartServer(port: Int, iface: String?) {
@@ -262,6 +311,7 @@ class NetworkServerService : Service() {
                 startHttpServer(httpPort, advertisedHost, actualPort)
                 httpStartedForCandidate = true
                 val httpProbeStatus = EaasHttpListenerProbe.verify(advertisedHost, httpPort)
+                verifyGrpcReadiness(advertisedHost, actualPort)
                 diagnostics.httpListenerReadiness = "PASS: $httpProbeStatus"
                 diagnostics.info(
                     TAG,
