@@ -27,7 +27,7 @@ class EaasGrpcResponseBatcherTest {
     fun empty_result_still_emits_one_empty_response_batch() {
         assertEquals(
             listOf(emptyList<String>()),
-            EaasGrpcResponseBatcher.chunk(emptyList(), 50)
+            EaasGrpcResponseBatcher.chunk(emptyList<String>(), 50)
         )
     }
 }
