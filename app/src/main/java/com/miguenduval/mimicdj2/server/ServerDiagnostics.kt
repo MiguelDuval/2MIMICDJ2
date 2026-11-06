@@ -1,28 +1,15 @@
 package com.miguenduval.mimicdj2.server
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.launch
-import timber.log.Timber
-import java.io.StringWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Centralized diagnostics and logging for the network server.
- * Provides ring buffer for log entries and counters for metrics.
+ * Lightweight in-memory metrics for the network server.
+ * Text log collection and Logcat forwarding are intentionally disabled.
  */
 class ServerDiagnostics {
-
-    private val scope = CoroutineScope(Dispatchers.IO + Job())
-    private val logChannel = Channel<LogEntry>(capacity = 1000)
-    private val logBuffer = mutableListOf<LogEntry>()
-    private val maxLogEntries = 500
 
     // Counters
     val discoveryRxCount = AtomicLong(0)
@@ -176,15 +163,9 @@ class ServerDiagnostics {
 
     enum class LogLevel { DEBUG, INFO, WARN, ERROR }
 
+    @Suppress("UNUSED_PARAMETER")
     fun log(level: LogLevel, tag: String, message: String, throwable: Throwable? = null) {
-        val entry = LogEntry(System.currentTimeMillis(), level, tag, message, throwable)
-        scope.launch { logChannel.send(entry) }
-        when (level) {
-            LogLevel.DEBUG -> Timber.tag(tag).d(throwable, message)
-            LogLevel.INFO -> Timber.tag(tag).i(throwable, message)
-            LogLevel.WARN -> Timber.tag(tag).w(throwable, message)
-            LogLevel.ERROR -> Timber.tag(tag).e(throwable, message)
-        }
+        // Deliberately disabled: do not allocate, queue, retain, or forward log entries.
     }
 
     fun debug(tag: String, message: String) = log(LogLevel.DEBUG, tag, message)
@@ -192,9 +173,9 @@ class ServerDiagnostics {
     fun warn(tag: String, message: String) = log(LogLevel.WARN, tag, message)
     fun error(tag: String, message: String, throwable: Throwable? = null) = log(LogLevel.ERROR, tag, message, throwable)
 
-    fun getLogEntries(): List<LogEntry> = logBuffer.toList()
+    fun getLogEntries(): List<LogEntry> = emptyList()
 
-    fun clearLogs() { logBuffer.clear() }
+    fun clearLogs() = Unit
 
     fun generateDiagnosticReport(): String {
         val sb = StringBuilder()
@@ -256,15 +237,8 @@ class ServerDiagnostics {
         sb.append("Open Failures: ${openFileFailures.get()}\n")
         sb.append("Last Transfer: ${if (lastFileTransfer > 0) fmt.format(Date(lastFileTransfer)) else "never"}\n\n")
 
-        sb.append("--- Recent Logs (last 50) ---\n")
-        logBuffer.takeLast(50).forEach { entry ->
-            sb.append("[${fmt.format(Date(entry.timestamp))}] ${entry.level} ${entry.tag}: ${entry.message}\n")
-            entry.throwable?.let { t ->
-                val writer = StringWriter()
-                t.printStackTrace(java.io.PrintWriter(writer))
-                sb.append(writer.toString())
-            }
-        }
+        sb.append("--- Logs ---\n")
+        sb.append("Log collection: disabled\n")
 
         return sb.toString()
     }
@@ -273,21 +247,5 @@ class ServerDiagnostics {
         return bytes.joinToString(" ") { String.format("%02X", it) }
     }
 
-    init {
-        scope.launch {
-            for (entry in logChannel) {
-                logBuffer.add(entry)
-                if (logBuffer.size > maxLogEntries) logBuffer.removeAt(0)
-            }
-        }
-    }
-
-    fun shutdown() {
-        logChannel.close()
-        scope.cancel()
-    }
-
-    companion object {
-        private const val TAG = "ServerDiagnostics"
-    }
+    fun shutdown() = Unit
 }
