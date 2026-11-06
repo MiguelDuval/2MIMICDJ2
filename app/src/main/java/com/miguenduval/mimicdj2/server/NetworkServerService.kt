@@ -316,6 +316,21 @@ class NetworkServerService : Service() {
                                     localHttpPort = httpBoundPort,
                                     bridgeHost = EaasEndpointConfig.loadBridgeHost(applicationContext)
                                 )
+                            },
+                            onTrackLookup = { requestedId, track, url ->
+                                diagnostics.lastTrackRequest = System.currentTimeMillis()
+                                if (track == null) {
+                                    diagnostics.warn(
+                                        TAG,
+                                        "GetTrack could not resolve requested ID='$requestedId'; indexed=${mediaLibrary.snapshot().size}"
+                                    )
+                                } else {
+                                    diagnostics.info(
+                                        TAG,
+                                        "GetTrack resolved ID='$requestedId' title='${track.title}' " +
+                                            "bytes=${mediaLibrary.fileSize(track)} URL=$url"
+                                    )
+                                }
                             }
                         )
                     )
@@ -908,6 +923,23 @@ class NetworkServerService : Service() {
     }
     fun getHttpBoundPort(): Int = httpBoundPort
     fun getHttpBindError(): String? = httpBindError
+
+    /** Refresh the selected SAF tree or the default MediaStore inventory. */
+    fun refreshMediaLibrary(): Int {
+        val tracks = mediaLibrary.refresh()
+        val selectedFolder = mediaLibrary.selectedTreeUriString()
+        diagnostics.info(
+            TAG,
+            "Media library refreshed: ${tracks.size} audio tracks; source=" +
+                if (selectedFolder.isNullOrBlank()) "all indexed device audio" else "selected SAF folder"
+        )
+        mediaLibrary.lastScanError?.let { diagnostics.error(TAG, "Media library scan failed: $it") }
+        return tracks.size
+    }
+
+    fun getSelectedMediaFolderUri(): String? = mediaLibrary.selectedTreeUriString()
+
+    fun getMediaLibraryScanError(): String? = mediaLibrary.lastScanError
     fun getIndexedTrackCount(forceRefresh: Boolean = false): Int =
         if (::mediaLibrary.isInitialized) mediaLibrary.snapshot(forceRefresh).size else 0
 }
