@@ -12,7 +12,7 @@ android {
         applicationId = "com.miguenduval.mimicdj2"
         minSdk = 24
         targetSdk = 32
-        versionCode = 1
+        versionCode = 4
         versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
