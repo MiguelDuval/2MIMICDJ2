@@ -430,6 +430,12 @@ class NetworkServerService : Service() {
                     httpServerFd = null
                     httpBoundPort = 0
                     diagnostics.error(TAG, "Closed HTTP listener after its readiness check failed", t)
+                } else if (diagnostics.httpListenerReadiness?.startsWith("BINDING:") == true) {
+                    val httpFailure = httpBindError
+                        ?: (t.javaClass.simpleName + ": " + (t.message ?: "no message"))
+                    diagnostics.httpListenerAddress = advertisedHost
+                    diagnostics.httpListenerPort = runCatching { pairedHttpPort(localServer?.port ?: 0) }.getOrDefault(0)
+                    diagnostics.httpListenerReadiness = "FAIL: $httpFailure"
                 }
                 if (candidatePort == port && bindIpv6Wildcard) {
                     // The standard endpoint failed on both address families.
@@ -458,6 +464,9 @@ class NetworkServerService : Service() {
     }
 
     private fun startHttpServer(port: Int, bindHost: String, grpcPort: Int = boundPort) {
+        diagnostics.httpListenerAddress = bindHost
+        diagnostics.httpListenerPort = port
+        diagnostics.httpListenerReadiness = "BINDING: $bindHost:$port"
         val listener = createHttpListener(port, bindHost)
         val fd = listener.first
         val bindMode = listener.second
@@ -465,8 +474,6 @@ class NetworkServerService : Service() {
         httpServerFd = fd
         httpBoundPort = port
         httpBindError = null
-        diagnostics.httpListenerAddress = bindHost
-        diagnostics.httpListenerPort = port
         diagnostics.httpListenerReadiness = "BOUND: waiting for GET /ping"
         diagnostics.info(
             TAG,
@@ -474,14 +481,16 @@ class NetworkServerService : Service() {
         )
 
         scope.launch {
-            while (httpServerFd != null) {
+            while (httpServerFd === fd) {
                 try {
                     val clientFd = Os.accept(fd, null)
                     diagnostics.httpAcceptedConnections.incrementAndGet()
                     executor.execute { handleHttpClient(clientFd) }
                 } catch (t: Throwable) {
-                    if (httpServerFd != null) {
+                    if (httpServerFd === fd) {
                         diagnostics.error(TAG, "HTTP native accept error", t)
+                    } else {
+                        break
                     }
                 }
             }
