@@ -55,9 +55,6 @@
             android:exported="false"
             android:foregroundServiceType="dataSync"
             android:stopWithTask="false" />
-
-eceiver>
-
-    </application>
+</application>
 
 </manifest>
