@@ -304,23 +304,7 @@ class NetworkServerService : Service() {
                     .addService(
                         EngineLibraryGrpcService(
                             library = mediaLibrary,
-                            serverHost = {
-                                val bridgeHost = EaasEndpointConfig.loadBridgeHost(applicationContext)
-                                if (bridgeHost.isNotBlank()) {
-                                    bridgeHost
-                                } else {
-                                    // The media URL must use the same concrete interface address
-                                    // as the gRPC listener and the EAAS endpoint advertised to Engine.
-                                    advertisedHost
-                                }
-                            },
-                            serverHttpPort = {
-                                EaasEndpointConfig.advertisedHttpPort(
-                                    localHttpPort = httpBoundPort,
-                                    bridgeHost = EaasEndpointConfig.loadBridgeHost(applicationContext)
-                                )
-                            },
-                            onTrackLookup = { requestedId, track, url ->
+                            onTrackLookup = { requestedId, track, blobKey ->
                                 diagnostics.lastTrackRequest = System.currentTimeMillis()
                                 if (track == null) {
                                     diagnostics.warn(
@@ -331,7 +315,8 @@ class NetworkServerService : Service() {
                                     diagnostics.info(
                                         TAG,
                                         "GetTrack resolved ID='$requestedId' title='${track.title}' " +
-                                            "bytes=${mediaLibrary.fileSize(track)} URL=$url"
+                                            "bytes=${mediaLibrary.fileSize(track)} blobKey=$blobKey " +
+                                            "downloadPath=${track.httpPath()}"
                                     )
                                 }
                             }

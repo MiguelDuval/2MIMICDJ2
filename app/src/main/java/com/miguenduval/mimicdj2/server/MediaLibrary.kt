@@ -14,10 +14,10 @@ import java.security.MessageDigest
 /**
  * Read-only view of Android's indexed local audio library.
  *
- * The Engine/Prime GO protocol never sees Android content:// URIs directly.
- * We expose a stable track id to gRPC and an URL-encoded local-path key to
- * the HTTP /download endpoint, matching the wire shape observed from Engine
- * Desktop (including the angle-bracket wrapper around the file key).
+ * We expose a stable track id in metadata and an opaque, bracketed file key
+ * in TrackBlobUrl.url. Prime GO URL-encodes that key when it requests
+ * /download/<key> from the paired HTTP endpoint on port 50020. Android
+ * content URIs can be retained as opaque keys and resolved only by this app.
  */
 class MediaLibrary(context: Context) {
     data class Track(
@@ -34,10 +34,9 @@ class MediaLibrary(context: Context) {
         val dateAddedSeconds: Long,
         val mimeType: String
     ) {
-        fun httpPath(): String = "/download/" + encodeHttpPathComponent("<$pathKey>")
+        fun blobKey(): String = buildEaasTrackBlobKey(pathKey)
 
-        fun httpUrl(host: String, port: Int = HTTP_PORT): String =
-            buildEaasTrackHttpUrl(host, port, httpPath())
+        fun httpPath(): String = "/download/" + encodeHttpPathComponent(blobKey())
     }
 
     companion object {
@@ -291,10 +290,14 @@ class MediaLibrary(context: Context) {
 }
 
 
-internal fun buildEaasTrackHttpUrl(host: String, port: Int, path: String): String {
-    require(port in 1..65535) { "invalid EAAS HTTP port: $port" }
-    require(path.startsWith("/")) { "EAAS track path must be absolute" }
-    return "http://" + host + ":" + port + path
+/**
+ * TrackBlobUrl.url is an opaque file key, not an absolute HTTP URL.
+ * Engine DJ wraps the path in angle brackets; Prime GO constructs GET
+ * /download/<URL-encoded key> against the host advertised by EAAS.
+ */
+internal fun buildEaasTrackBlobKey(pathKey: String): String {
+    require(pathKey.isNotBlank()) { "EAAS track path key must not be blank" }
+    return "<$pathKey>"
 }
 
 private const val HEX_DIGITS = "0123456789ABCDEF"

@@ -35,8 +35,6 @@ import io.grpc.stub.StreamObserver
 
 class EngineLibraryGrpcService(
     private val library: MediaLibrary,
-    private val serverHost: () -> String,
-    private val serverHttpPort: () -> Int = { MediaLibrary.HTTP_PORT },
     private val onTrackLookup: (String, MediaLibrary.Track?, String?) -> Unit = { _, _, _ -> }
 ) : EngineLibraryServiceGrpc.EngineLibraryServiceImplBase() {
 
@@ -161,16 +159,14 @@ class EngineLibraryGrpcService(
             return
         }
 
-        val host = serverHost().ifBlank { "0.0.0.0" }
-        val httpPort = serverHttpPort()
-        val url = track.httpUrl(host, httpPort)
+        val blobKey = track.blobKey()
         val fileSize = library.fileSize(track).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-        onTrackLookup(requestedId, track, url)
+        onTrackLookup(requestedId, track, blobKey)
 
         val blob = TrackBlob.newBuilder()
             .setUrl(
                 TrackBlobUrl.newBuilder()
-                    .setUrl(url)
+                    .setUrl(blobKey)
                     .setFileSize(fileSize)
                     .build()
             )
