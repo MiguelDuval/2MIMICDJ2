@@ -39,6 +39,10 @@ class ServerDiagnostics {
     val rpcCount = AtomicLong(0)
     val externalRpcCount = AtomicLong(0)
     val localSelfTestRpcCount = AtomicLong(0)
+    val httpAcceptedConnections = AtomicLong(0)
+    @Volatile var httpListenerAddress: String? = null
+    @Volatile var httpListenerPort: Int = 0
+    @Volatile var httpListenerReadiness: String? = null
     val fileRequests = AtomicLong(0)
     val bytesServed = AtomicLong(0)
     val rangeRequests = AtomicLong(0)
@@ -185,6 +189,11 @@ class ServerDiagnostics {
         sb.append("Prime GO high-port scan: ${primeGoHighPortScan ?: "not started"}\n")
         sb.append("Prime GO high-port scan progress: ${primeGoHighPortScanProgress ?: "not started"}\n")
         sb.append("Prime GO high-port gRPC probes: ${primeGoHighPortGrpcProbes ?: "none"}\n\n")
+
+        sb.append("--- HTTP Listener ---\n")
+        sb.append("Bind target: ${httpListenerAddress ?: "unknown"}:${httpListenerPort}\n")
+        sb.append("Readiness: ${httpListenerReadiness ?: "not tested"}\n")
+        sb.append("Accepted TCP connections: ${httpAcceptedConnections.get()}\n\n")
 
         sb.append("--- File Server ---\n")
         sb.append("Requests: ${fileRequests.get()}\n")
