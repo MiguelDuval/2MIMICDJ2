@@ -1,30 +1,36 @@
 # Research Status
 
 ## Overview
-This directory contains the evidence-led research for the 2MIMICDJ2 project. All protocol implementation decisions must be traceable to entries in `ledger.md`.
+
+This directory contains the evidence-led research for 2MIMICDJ2. Protocol implementation decisions must remain traceable to `ledger.md`.
 
 ## Structure
-- `ledger.md` — Evidence ledger with Date, Source, Scope, Observation, Evidence Class, Confidence, Reproduction Method, Consequence, Open Questions
-- `source-inventory.md` — Catalog of all sources consulted with scope/version annotations
-- `hypothesis-matrix.md` — Protocol investigation matrix (discovery, transport, RPC, library, track retrieval, etc.)
-- `target-device-profile.md` — Actual Prime GO hardware/firmware/network profile
-- `capture-plan.md` — Packet capture strategy and tools
 
-## Evidence Classes
-- **A** — Directly captured/observed on the target Prime GO
-- **B** — Reproduced against another Engine OS device
-- **C** — Reproduced against a known compatible reference implementation
-- **D** — Published reverse engineering / source code / documentation
-- **E** — Hypothesis or inference
+- `ledger.md` — evidence ledger with device/version scope and confidence
+- `source-inventory.md` — consulted sources with pinned versions and scope
+- `hypothesis-matrix.md` — questions, findings, and remaining gaps
+- `target-device-profile.md` — actual Prime GO hardware/firmware/network profile
+- `capture-plan.md` — packet capture strategy
+- `deathcamel58-reverse-engineering-findings-2026-11-06.md` — source findings and implementation consequences
+- `denon-engine-remote-library-capture-2026-09-29.md` — direct target Prime GO Remote Library capture sequence
 
-**Rule**: Never silently upgrade E to A.
+## Evidence classes
 
-## Current Phase
-**Phase A — Research** (in progress)
+- **A** — directly captured/observed on the target Prime GO
+- **B** — reproduced against another Engine OS device
+- **C** — reproduced against a known compatible reference implementation
+- **D** — published reverse engineering, source code or documentation
+- **E** — hypothesis or inference
 
-## Next Steps
-1. Complete target device profile (hardware model, Engine OS version, firmware, network topology)
-2. Populate source inventory with all consulted references
-3. Build hypothesis matrix from evidence (not memory)
-4. Design capture plan
-5. Create protocol probe tools
+Never silently upgrade E to A. Keep device and firmware scope beside every D/B finding.
+
+## Current phase
+
+**Implementation / hardware validation.** Discovery and the Prime GO Remote Library transport sequence are captured. Android's standard-port bind restriction is measured. The app implements the Engine Library service and a LAN compatibility gateway, but the gateway still requires a real Prime GO end-to-end test.
+
+## Remaining evidence gaps
+
+1. Record the Prime GO's exact Engine OS/build.
+2. Capture raw HTTP/2 DATA payload bytes (pcapng) if Trust/GetTrack protobuf field mappings must be settled.
+3. Validate browse -> GetTrack -> HTTP download -> playback through the gateway.
+4. Test seeking/range requests after basic playback works.

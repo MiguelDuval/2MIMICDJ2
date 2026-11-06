@@ -1,86 +1,133 @@
 # DeathCamel58 reverse-engineering findings
 
-Reviewed: 2026-11-06
-Primary index: https://deathcamel58.github.io/denon-reverse-engineering/starter-topic.html
-Source repository: https://github.com/DeathCamel58/denon-reverse-engineering
+Reviewed: 2026-11-06  
+Primary index: https://deathcamel58.github.io/denon-reverse-engineering/starter-topic.html  
+Source repository: https://github.com/DeathCamel58/denon-reverse-engineering  
+Reviewed source commit: `0f7966516609e3de2b71e4aef21625bd8d94c57c`  
 Relevant pages: Engine Networking, Engine gRPC, Engine Library, Engine OS, UART, Updating.
 
 ## Executive conclusion
 
-The source is valuable, but its scope matters: the detailed networking and gRPC findings are principally from two SC6000 units running Engine OS 5.0.4. Our known-good packet capture is from the target Prime GO and directly shows its Remote Library session using TCP 50010 for Engine Library gRPC and TCP 50020 for the audio download. The Prime GO capture remains authoritative for this project. Do not copy SC6000 5.0.4 port assignments onto the Prime GO without a matching target capture.
+The source is a substantial reverse-engineering corpus, not one Prime GO protocol specification. Its detailed networking and gRPC observations are principally from two SC6000 / JP13 units running Engine OS 5.0.4. The repo also contains a separate Prime GO / JP11 firmware and UART profile.
 
-## Findings that change our understanding
+Our own known-good Prime GO packet-list captures are more authoritative for this project's Remote Library endpoint: they show the Prime GO connecting to a Windows Engine Desktop server on TCP 50010 for Engine Library gRPC and TCP 50020 for HTTP audio downloads. The SC6000 finding that its own TCP 50010 serves EngineSync is not contradictory: it describes a different device's server-side listeners, while our capture describes Prime GO acting as a client to a PC Remote Library server.
 
-### 1. Engine has distinct gRPC subsystems
+Do not copy SC6000 5.0.4 port assignments onto Prime GO without a matching target capture.
 
-DeathCamel58 identifies Engine's device-to-device services and a separate EAAS gRPC server inside Libraries/private/Planck/Eaas/src/grpcServer. On SC6000 5.0.4, TCP 50010 was observed serving enginesync.v1.EngineSyncService only. enginelibrary.v1 and networktrust.v1 returned UNIMPLEMENTED on that listener. The author leaves the externally exposed port of the separate EAAS gRPC server unresolved.
+## Findings that fill previous gaps
 
-This differs from our Prime GO capture, where EngineLibrary methods were observed on TCP 50010. This is a device/firmware-scope difference, not a reason to discard the Prime GO capture. The app currently registers EngineSync, NetworkTrust and EngineLibrary services on one listener; that may match the captured Prime GO generation, but it is not a universal Engine OS topology.
+### 1. EngineSync, EngineLibrary, and NetworkTrust are distinct services
 
-### 2. Two unrelated HTTP servers exist
+DeathCamel identifies `enginesync.v1.EngineSyncService`, `enginelibrary.v1.EngineLibraryService`, and `networktrust.v1.NetworkTrustService` as separate gRPC services in Engine. On the tested SC6000 5.0.4 devices, TCP 50010 exposed EngineSync; EngineLibrary and NetworkTrust returned `UNIMPLEMENTED` on that particular listener. The externally exposed port for the separate EAAS gRPC server was not resolved.
 
-The EAAS HTTP server is cpp-httplib and registers /ping and /download/(<)(.*)(>) for application/octet-stream transfers. The license activation callback is a separate hand-written HTTP server on TCP 41401, serving /authorise?code=. Port 41401 is not the music download server.
+For the captured Prime GO Remote Library client session, the PC server's TCP 50010 definitely carried EngineLibrary methods. These are different sides of the connection and different device/server configurations. The app's service registration on one listener remains based on the Prime GO capture plus the Go reference, not a universal Engine OS claim.
 
-DeathCamel58 did not observe EAAS HTTP listening on 50020 on the tested SC6000 5.0.4 units. Our Prime GO capture, however, directly shows TCP 50020, HTTP/1.1 GET /download/<URL-encoded-key>, HTTP 200 and a long binary stream. Keep the target-specific implementation on 50020.
+EngineSync's `ExchangeTimestamps` and `UpdateSyncLeadAudioInfo` paths use a `uuid` gRPC metadata value and a host discovered into its own host table. That is an EngineSync-specific rule. It is not evidence that every EngineLibrary request must carry the same metadata. Do not add a global UUID gate to the Remote Library service.
 
-### 3. Discovery is not trust or session establishment
+### 2. EAAS HTTP and the license callback are different servers
 
-The six-byte EAAS request is ASCII EAAS followed by 01 00. The Go reference implementation replies with a 16-byte token, UTF-16BE hostname, UTF-8 grpc://host:port URL, UTF-16BE software version, a one-byte marker and UTF-16BE extra string. It chooses a reply address based on the receiving interface/subnet.
+The SC6000 binary contains an EAAS HTTP server based on cpp-httplib, registering `/ping` and `/download/(<)(.*)(>)` for file transfer. The separate hand-written license activation callback listens on TCP 41401 and serves `/authorise?code=`; 41401 is not the audio download port.
 
-DeathCamel58 notes that the EAAS beacon alone does not populate EngineSync's discovered-host table. EngineSync methods also require uuid metadata and a previously discovered host. Our Prime GO diagnostics prove discovery request/reply works; they do not prove that trust or library RPC has succeeded.
+DeathCamel did not observe an active TCP 50020 EAAS listener on the tested SC6000 5.0.4 units. Our Prime GO packet capture directly shows a PC Remote Library host serving TCP 50020: the Prime GO requests `GET /download/<URL-encoded-key>`, receives HTTP 200, and then reads a large binary audio stream. Keep the target-specific 50020 behavior.
 
-### 4. Trust schema discrepancy must be resolved from the target capture
+### 3. Discovery, trust, and session establishment are separate
 
-CreateTrustRequest contains ed25519_pk (UTF-8 string), wireguard_port (uint32) and device_name (string). The reference describes interactive grant/deny/busy outcomes.
+The EAAS request is six bytes: ASCII `EAAS` followed by `01 00`. The reference beacon replies with a 16-byte token, length-prefixed UTF-16BE hostname, UTF-8 `grpc://host:port` URL, UTF-16BE software version, a one-byte marker and UTF-16BE extra string. The Go reference selects a reply address based on the receiving interface/subnet.
 
-Important discrepancy: icedream/go-stagelinq models CreateTrustResponse as a oneof with granted/denied/busy at fields 1/2/3. DeathCamel58's static analysis of the SC6000 5.0.4 binary reports a single message-valued response field at field 3 and explicitly marks the nested mapping uncertain. These are not interchangeable claims.
+The two Prime GO captures show that the observed steps vary:
+- `denonlog.txt`: HTTP `GET /ping` -> HTTP 200, then gRPC `CreateTrust`, then EventStream/GetLibrary/GetTracks.
+- `denonlog2.txt`: EAAS discovery followed by EventStream/GetLibrary/GetTracks/GetTrack and a separate HTTP 50020 download; this capture contains no `CreateTrust` call and no `/ping`.
 
-Do not change the Prime GO response field numbers based solely on SC6000 static analysis. Preserve raw CreateTrust request and response DATA payloads from the known-good Engine Desktop capture and compare the protobuf tags with our generated response. Current auto-grant behavior remains a prototype shortcut, not a complete trust implementation.
+Therefore neither `/ping` nor `CreateTrust` should be assumed to repeat in every browse session. Discovery proves only UDP advertisement, not a fully established library session.
 
-### 5. Engine Library schema is much better documented
+The EAAS token is an identity marker: the Go reference preserves it across a server lifetime so Engine can identify a returning library. This app now persists its 16-byte token in app-private preferences and restores it when the Service is recreated.
 
-Methods and RPC kinds from the source:
+### 4. CreateTrust schema is still not resolved for Prime GO
+
+The recovered request shows:
+- field 1: `ed25519_pk`, string;
+- field 3: `device_name`, string;
+- field 2: a varint. The Go reference names it `wireguard_port`, but DeathCamel's SC6000 binary analysis does not independently confirm that semantic name.
+
+There is a response discrepancy:
+- icedream/go-stagelinq models a oneof: granted / denied / busy at fields 1 / 2 / 3;
+- DeathCamel's SC6000 5.0.4 reconstruction reports one message-valued field at number 3, but explicitly marks its nested outcome mapping uncertain.
+
+These claims must not be silently merged. The available Prime GO packet-list exports show the method name and frame sizes but not the raw protobuf DATA bytes. Consequently they cannot resolve the response tags. The current app retains the Go reference encoding and now logs only serialized sizes plus field-number/wire-type summaries for each request and response; it never logs the public key or field values. The next raw payload capture can compare the two encodings without exposing secrets.
+
+### 5. Engine Library RPC method kinds and the recovered schema
+
+DeathCamel's reconstructed SC6000 5.0.4 service declares:
 - Unary: GetCredentials, GetLibraries, GetLibrary, GetTrack, GetSearchFilters, GetHistorySessions, GetHistoryPlayedTracks, PutEvents.
 - Server streaming: GetTracks, SearchTracks, EventStream.
 
-The source schema confirms the main request/response shapes: GetTracksRequest has library_id, playlist_id, page_size, sort, list_type and filters; GetTrackResponse has blob, performance_data and metadata; TrackBlobUrl has URL and file_size. TrackMetadata includes title/artist/album/key/BPM/rating/year/genre/comment/label/length/composer/remixer/date-added. TrackPerformanceData includes beat grid, quick cues, loops, main cue, overview waveform and BPM.
+The methods and RPC kinds are useful reference facts, but some request fields and response-message semantics remain marked UNKNOWN / UNCONFIRMED. In particular, the reconstructed GetTracksRequest confirms message/varint/string wire types but marks some fields' meanings tentative. The Go schema labels those fields as page_size, sort, list_type and filters. This app follows the Go reference's names while treating it as a compatible schema hypothesis, not an official vendor contract.
 
-The author distinguishes exact method names/kinds, field numbers and wire types from inferred names/types for some non-string fields. Preserve UNKNOWN/UNCONFIRMED labels rather than treating inferred semantics as certain.
+Similarly, DeathCamel's reconstructed GetTrackResponse shows three message-valued fields but does not settle their mapping. The Go reference maps these as blob, performance_data and metadata. The packet-list capture reports a 1,075-byte GetTrack response DATA frame but does not contain the decoded payload. Do not change that field mapping without a raw protobuf payload.
 
-### 6. High ports may be ephemeral service-directory sockets
+The app now has server-streaming descriptors for GetTracks/SearchTracks/EventStream and emits all track results in page-sized batches instead of dropping everything after the first page. Tests check the generated method descriptors and batch behavior.
 
-On SC6000 5.0.4, roughly a dozen high ports were observed; extra ports appeared only while network library sharing was active and disappeared within seconds. They were silent to an HTTP/2 preface and were suspected to belong to airNetworkExchange directory/service sockets. If a future Prime GO capture reveals such a port, probe it immediately in the same capture pass. A delayed scan can miss it.
+### 6. High TCP ports may be short-lived service-directory sockets
 
-### 7. Classic StageLinq discovery and Ableton Link are not our current blocker
+On SC6000 5.0.4, roughly a dozen high TCP ports appeared while network library sharing was active and disappeared within seconds. They did not respond to an HTTP/2 preface and were suspected to belong to `airNetworkExchange` directory/service sockets. That is a hypothesis about the SC6000 observations, not proof that these are Prime GO EAAS endpoints.
 
-The SC6000 5.0.4 tests did not observe useful UDP 51337 airD discovery; EAAS UDP 11224 was active. Our Prime GO capture independently confirms UDP 11224. Ableton Link multicast at 224.76.78.75:20808 carries tempo/phase sync and is unrelated to library browse, trust or file transfer.
+The app's scan is diagnostic-only: it probes ports 30000–47000 and fingerprints any open TCP port with a read-only `EngineLibrary.GetLibraries` request. It does not automatically choose or advertise a scanned port.
 
-## Corrections to project assumptions
+### 7. UDP 51337 is not a universal replacement for EAAS discovery
 
-| Simplification | Corrected understanding |
+DeathCamel's Engine Networking captures did not identify useful `airD` discovery traffic on UDP 51337, while EAAS UDP 11224 was active. However, its separate JP13 live socket snapshot lists three UDP 51337 listeners. These observations are not enough to claim 51337 is universally absent or universally the discovery protocol. The Prime GO packet capture directly confirms EAAS UDP 11224; it remains the project's discovery path.
+
+Ableton Link multicast at `224.76.78.75:20808` carries tempo/phase synchronization and is unrelated to Remote Library browsing or audio file delivery.
+
+### 8. Engine OS version and hardware-family differences matter
+
+The Engine OS page distinguishes the Prime GO / JP11 platform from the SC6000 / JP13 platform. The Prime GO table lists the Buildroot-era releases through 4.3.4 and the Yocto/OpenEmbedded Scarthgap transition beginning at 5.0.0; 5.0.x belongs to a different software/kernel family from the SC6000 observations. The exact version/build running on the user's Prime GO is still not recorded in this project.
+
+The UART page documents a Prime GO serial header at 115200 baud, which can be used to read boot/runtime information if a suitable adapter is available. This project does not need firmware flashing, bootloader unlocking, or destructive update commands to complete the Remote Library implementation.
+
+## Corrected project assumptions
+
+| Old simplification | Corrected understanding |
 |---|---|
-| TCP 50010 always hosts EAAS Library and Trust | True for the captured Prime GO session; not true for the tested SC6000 5.0.4 listener, which hosted EngineSync only. |
-| Discovery proves a usable session | It proves UDP request/reply and endpoint advertisement only. |
-| TCP 50020 is universally active | Confirmed on the target Prime GO capture; not observed active on SC6000 5.0.4. |
-| Local gRPC self-test proves hardware compatibility | It proves only that our own local client/server pair works. |
-| CreateTrust response schema is settled | Available reconstructions disagree on response field numbering; target payload must decide. |
+| TCP 50010 universally hosts Engine Library and Trust | Observed for the PC Remote Library server in the Prime GO capture; SC6000 5.0.4's own 50010 listener was EngineSync only. |
+| Every session starts with CreateTrust | Present in `denonlog.txt`, absent in `denonlog2.txt`; likely conditional or previously trusted. |
+| Every session starts with /ping | Present in `denonlog.txt`, absent in `denonlog2.txt`; not universal. |
+| Discovery proves a usable library session | It proves UDP request/reply and endpoint advertisement only. |
+| All Engine Library fields are fully recovered | Method kinds and major shapes are known; some field semantics/mappings remain unconfirmed. |
+| The CreateTrust response schema is settled | Go and SC6000 reconstructions disagree; Prime GO payload bytes are needed. |
+| An open high port is necessarily an EAAS listener | SC6000 research suggests some high ports may be transient non-gRPC directory sockets. |
 
-## Engineering actions
+## Engineering actions completed in this branch
 
-1. Keep the Android port restriction and LAN gateway work as a transport workaround, but test the full forwarded path from the Prime GO.
-2. Make diagnostics distinguish UDP discovery, gateway TCP accept, HTTP/2 preface/SETTINGS, RPC method path, CreateTrust request/response tags, GetLibrary/GetTracks/GetTrack, and HTTP 50020 request/streamed bytes.
-3. Record the exact Prime GO Engine OS and firmware version. The SC6000 5.0.4 research must not be silently treated as the target's firmware.
-4. Resolve the CreateTrust field-number discrepancy from raw target capture bytes before changing the schema.
-5. Acceptance remains a real Prime GO browse -> GetTrack -> GET /download/<encoded-key> -> sustained transfer -> playback test.
+1. Kept the Android port workaround and gateway design, without claiming the bridge has been hardware-validated.
+2. Corrected GetTracks, SearchTracks and EventStream to server-streaming RPCs.
+3. Added page-sized response batching without dropping tracks after the first page.
+4. Corrected GetTrack URL generation to use the actual paired HTTP listener in direct mode and TCP 50020 in bridge mode.
+5. Added a stable persisted EAAS identity token.
+6. Split local self-tests from external peer counters so local traffic can no longer masquerade as Prime GO.
+7. Added a read-only EngineLibrary.GetLibraries probe for Prime GO TCP 50010 and transient high-port fingerprints.
+8. Added privacy-safe CreateTrust protobuf wire-shape diagnostics.
+9. Documented the remaining target-specific unknowns and the required end-to-end hardware acceptance test.
 
-## Source limitations and references
+## Remaining acceptance criteria
 
-The starter page is an index to a large reverse-engineering corpus. The key networking/gRPC findings are principally SC6000 5.0.4 static analysis plus live tests on two SC6000 units. They are strong technical references, not a replacement for the target Prime GO capture.
+A real Prime GO test with the compatibility gateway must confirm:
+1. Prime GO source discovery reaches the gateway's advertised endpoint;
+2. external TCP 50010 accepts HTTP/2 and the real device invokes NetworkTrust/EngineLibrary as required;
+3. GetLibrary/GetTracks show the phone's media inventory;
+4. GetTrack returns a usable track URL;
+5. Prime GO makes HTTP 50020 GET /download and receives the complete file;
+6. the track loads and plays; seeking/range behavior is separately tested.
 
-- https://deathcamel58.github.io/denon-reverse-engineering/starter-topic.html
-- https://deathcamel58.github.io/denon-reverse-engineering/engine-networking.html
-- https://deathcamel58.github.io/denon-reverse-engineering/engine-grpc.html
-- https://deathcamel58.github.io/denon-reverse-engineering/engine-os.html
-- https://github.com/DeathCamel58/denon-reverse-engineering
-- https://github.com/icedream/go-stagelinq/tree/main/eaas
-- Project capture: docs/research/denon-engine-remote-library-capture-2026-09-29.md
+## Sources and references
+
+- Starter index: https://deathcamel58.github.io/denon-reverse-engineering/starter-topic.html
+- Engine Networking: https://deathcamel58.github.io/denon-reverse-engineering/engine-networking.html
+- Engine gRPC: https://deathcamel58.github.io/denon-reverse-engineering/engine-grpc.html
+- Engine Library: https://deathcamel58.github.io/denon-reverse-engineering/engine-library.html
+- Engine OS: https://deathcamel58.github.io/denon-reverse-engineering/engine-os.html
+- UART: https://deathcamel58.github.io/denon-reverse-engineering/uart.html
+- Updating: https://deathcamel58.github.io/denon-reverse-engineering/updating.html
+- Pinned source: https://github.com/DeathCamel58/denon-reverse-engineering/tree/0f7966516609e3de2b71e4aef21625bd8d94c57c
+- Go EAAS reference: https://github.com/icedream/go-stagelinq/tree/main/eaas
+- Prime GO captures: `denonlog.txt`, `denonlog2.txt`, summarized in `docs/research/denon-engine-remote-library-capture-2026-09-29.md`
