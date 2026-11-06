@@ -4,9 +4,12 @@ import android.content.ContentResolver
 import android.content.Context
 import android.database.Cursor
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.webkit.MimeTypeMap
 import java.util.Locale
+import java.util.ArrayDeque
+import java.security.MessageDigest
 
 /**
  * Read-only view of Android's indexed local audio library.
@@ -39,7 +42,11 @@ class MediaLibrary(context: Context) {
 
     companion object {
         const val HTTP_PORT = 50020
+        const val PREFS_NAME = "media_library"
+        const val KEY_SELECTED_TREE_URI = "selected_tree_uri"
         private const val CACHE_TTL_MS = 1500L
+        private const val MAX_TREE_DOCUMENTS = 10000
+        private const val MAX_TREE_DEPTH = 32
     }
 
     private val appContext = context.applicationContext
@@ -49,6 +56,9 @@ class MediaLibrary(context: Context) {
     private var cached: List<Track> = emptyList()
     @Volatile
     private var cachedAtMs: Long = 0L
+    @Volatile
+    var lastScanError: String? = null
+        private set
 
     @Synchronized
     fun snapshot(forceRefresh: Boolean = false): List<Track> {
@@ -57,11 +67,14 @@ class MediaLibrary(context: Context) {
             return cached
         }
 
-        val result = runCatching { queryTracks() }.getOrElse {
-            cached = emptyList()
-            cachedAtMs = now
-            return cached
-        }
+        val result = runCatching { queryTracks() }
+            .onSuccess { lastScanError = null }
+            .getOrElse { error ->
+                lastScanError = "${error.javaClass.simpleName}: ${error.message ?: "media scan failed"}"
+                cached = emptyList()
+                cachedAtMs = now
+                return cached
+            }
 
         cached = result
         cachedAtMs = now
@@ -79,10 +92,111 @@ class MediaLibrary(context: Context) {
     fun findByDisplayName(name: String): Track? =
         snapshot().firstOrNull { it.displayName == name }
 
+    fun findByReference(value: String): Track? =
+        findById(value) ?: findByPathKey(value) ?: findByDisplayName(value)
+
     fun open(track: Track): android.os.ParcelFileDescriptor? =
         resolver.openFileDescriptor(track.uri, "r")
 
+    fun fileSize(track: Track): Long {
+        if (track.sizeBytes > 0L) return track.sizeBytes
+        return runCatching {
+            open(track)?.use { descriptor -> descriptor.statSize.coerceAtLeast(0L) } ?: 0L
+        }.getOrDefault(0L)
+    }
+
+    fun selectedTreeUriString(): String? =
+        appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_SELECTED_TREE_URI, null)
+
+    fun refresh(): List<Track> = snapshot(forceRefresh = true)
+
     private fun queryTracks(): List<Track> {
+        val selected = selectedTreeUriString()?.takeIf { it.isNotBlank() }
+        val treeUri = selected?.let { runCatching { Uri.parse(it) }.getOrNull() }
+        return if (treeUri != null) querySelectedTree(treeUri) else queryMediaStoreTracks()
+    }
+
+    private fun querySelectedTree(treeUri: Uri): List<Track> {
+        val rootId = DocumentsContract.getTreeDocumentId(treeUri)
+        val pending = ArrayDeque<Pair<String, Int>>()
+        val visited = HashSet<String>()
+        val output = ArrayList<Track>()
+        val projection = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+            DocumentsContract.Document.COLUMN_SIZE,
+            DocumentsContract.Document.COLUMN_LAST_MODIFIED
+        )
+
+        pending.addLast(rootId to 0)
+        while (pending.isNotEmpty() && visited.size < MAX_TREE_DOCUMENTS) {
+            val (parentId, depth) = pending.removeFirst()
+            if (!visited.add(parentId)) continue
+
+            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentId)
+            resolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
+                val idColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+                val nameColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                val mimeColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+                val sizeColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
+                val modifiedColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+                if (idColumn < 0 || nameColumn < 0) return@use
+
+                while (cursor.moveToNext() && visited.size + output.size < MAX_TREE_DOCUMENTS) {
+                    val documentId = cursor.getString(idColumn) ?: continue
+                    val displayName = cursor.getString(nameColumn).orEmpty()
+                    if (displayName.isBlank()) continue
+
+                    val mimeType = if (mimeColumn >= 0 && !cursor.isNull(mimeColumn)) {
+                        cursor.getString(mimeColumn)
+                    } else {
+                        null
+                    }
+
+                    if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
+                        if (depth < MAX_TREE_DEPTH) pending.addLast(documentId to depth + 1)
+                        continue
+                    }
+                    if (!isSupportedAudioDocument(mimeType, displayName)) continue
+
+                    val documentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
+                    val size = if (sizeColumn >= 0 && !cursor.isNull(sizeColumn)) {
+                        cursor.getLong(sizeColumn).coerceAtLeast(0L)
+                    } else {
+                        0L
+                    }
+                    val modifiedMillis = if (modifiedColumn >= 0 && !cursor.isNull(modifiedColumn)) {
+                        cursor.getLong(modifiedColumn).coerceAtLeast(0L)
+                    } else {
+                        0L
+                    }
+                    val mime = mimeType?.takeIf { it.startsWith("audio/", ignoreCase = true) }
+                        ?: mimeFromName(displayName)
+
+                    output += Track(
+                        id = stableDocumentTrackId(documentUri.toString()),
+                        uri = documentUri,
+                        pathKey = documentUri.toString(),
+                        displayName = displayName,
+                        title = displayName.substringBeforeLast('.', displayName),
+                        artist = "Unknown Artist",
+                        album = "Unknown Album",
+                        year = 0,
+                        durationMs = 0L,
+                        sizeBytes = size,
+                        dateAddedSeconds = modifiedMillis / 1000L,
+                        mimeType = mime
+                    )
+                }
+            }
+        }
+
+        return output.sortedWith(compareBy<Track, String>(String.CASE_INSENSITIVE_ORDER) { it.title }.thenBy { it.id })
+    }
+
+    private fun queryMediaStoreTracks(): List<Track> {
         val projection = arrayOf(
             MediaStore.Audio.Media._ID,
             MediaStore.Audio.Media.DISPLAY_NAME,
@@ -168,8 +282,7 @@ class MediaLibrary(context: Context) {
     }
 
     private fun normalizeKey(value: String): String =
-        value.trim().removePrefix("<").removeSuffix(">").replace("\\\\", "/")
-            .lowercase(Locale.US)
+        value.trim().removePrefix("<").removeSuffix(">").replace('\\', '/')
 
     private fun mimeFromName(name: String): String =
         MimeTypeMap.getSingleton()
@@ -223,3 +336,24 @@ private fun Cursor.getIntOrNull(index: Int): Int? =
 
 private fun Cursor.getLongOrNull(index: Int): Long? =
     if (isNull(index)) null else getLong(index)
+
+
+private val supportedAudioExtensions = setOf(
+    "mp3", "m4a", "aac", "wav", "wave", "flac", "ogg", "opus",
+    "aif", "aiff", "alac", "wma", "ape", "dsf", "dff"
+)
+
+internal fun isSupportedAudioDocument(mimeType: String?, displayName: String): Boolean {
+    val normalizedMime = mimeType?.substringBefore(';')?.trim()?.lowercase(Locale.US)
+    if (!normalizedMime.isNullOrBlank() && normalizedMime.startsWith("audio/")) return true
+    val extension = displayName.substringAfterLast('.', "").lowercase(Locale.US)
+    return extension in supportedAudioExtensions
+}
+
+internal fun stableDocumentTrackId(documentUri: String): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+        .digest(documentUri.toByteArray(Charsets.UTF_8))
+    return "saf-" + digest.take(16).joinToString("") { byte ->
+        "%02x".format(byte.toInt() and 0xFF)
+    }
+}
