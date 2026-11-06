@@ -8,11 +8,17 @@ package com.miguenduval.mimicdj2.server
  * must not silently move to another high port.
  */
 object EaasServerPortPlan {
-    private const val FALLBACK_GRPC_PORT = 50100
-    fun grpcCandidates(requestedPort: Int): List<Int> {
+    const val BRIDGE_GRPC_PORT = 50100
+    const val BRIDGE_HTTP_PORT = 50110
+
+    fun grpcCandidates(requestedPort: Int, bridgeMode: Boolean): List<Int> {
+        if (bridgeMode) {
+            return listOf(BRIDGE_GRPC_PORT)
+        }
+
         return buildList {
             add(requestedPort)
-            if (requestedPort != FALLBACK_GRPC_PORT) add(FALLBACK_GRPC_PORT)
+            if (requestedPort != BRIDGE_GRPC_PORT) add(BRIDGE_GRPC_PORT)
             if (requestedPort != 60000) add(60000)
             add(0)
         }

@@ -1,6 +1,7 @@
 package com.miguenduval.mimicdj2.ui
 
 import android.Manifest
+
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -8,44 +9,63 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import android.content.ServiceConnection
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
+import android.widget.EditText
 import android.os.IBinder
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Observer
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.snackbar.Snackbar
+import com.miguenduval.mimicdj2.network.NetworkDiagnostics
 import com.miguenduval.mimicdj2.R
-import com.miguenduval.mimicdj2.server.MediaLibrary
+import com.miguenduval.mimicdj2.server.EaasEndpointConfig
 import com.miguenduval.mimicdj2.server.NetworkServerService
+import com.miguenduval.mimicdj2.server.MediaLibrary
+import com.miguenduval.mimicdj2.server.ServerDiagnostics
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import timber.log.Timber
 
 class MainActivity : AppCompatActivity() {
 
+    private val TAG = "MainActivity"
     private companion object {
         const val MEDIA_PERMISSION_REQUEST = 4101
         const val LOCAL_NETWORK_PERMISSION_REQUEST = 4102
     }
 
+    // UI Components
     private lateinit var tvServerStatus: TextView
-    private lateinit var tvServerMessage: TextView
+    private lateinit var tvNetworkInfo: TextView
+    private lateinit var tvServicesInfo: TextView
+    private lateinit var tvDiscoveryInfo: TextView
+    private lateinit var tvSessionInfo: TextView
+    private lateinit var tvLibraryInfo: TextView
     private lateinit var tvMediaFolder: TextView
-    private lateinit var tvTrackCount: TextView
+    private lateinit var tvFileServerInfo: TextView
+    private lateinit var tvEventLog: TextView
     private lateinit var btnToggleServer: Button
+    private lateinit var btnCopyDiagnostics: Button
+    private lateinit var btnClearLogs: Button
     private lateinit var btnSelectMediaFolder: Button
     private lateinit var btnUseAllDeviceMusic: Button
+    private lateinit var etBridgeHost: EditText
 
+    // Services
+    private lateinit var networkDiagnostics: NetworkDiagnostics
     private var serverService: NetworkServerService? = null
     private var isBound = false
     private var periodicUiJob: Job? = null
     private var pendingServerStartAfterLocalNetworkPermission = false
     private var pendingServerStartAfterServiceBinding = false
-    private var pendingUseAllDeviceMusic = false
-    private var pendingDefaultMusicPermission = false
 
     private val mediaFolderPicker = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -63,11 +83,20 @@ class MainActivity : AppCompatActivity() {
                     .edit()
                     .putString(MediaLibrary.KEY_SELECTED_TREE_URI, uri.toString())
                     .apply()
-                refreshMediaLibrary()
-                updateMediaSourceUI()
-                Toast.makeText(this, R.string.folder_connected, Toast.LENGTH_SHORT).show()
+                val count = runCatching { serverService?.refreshMediaLibrary() }.getOrNull()
+                updateMediaFolderLabel()
+                Toast.makeText(
+                    this,
+                    count?.let { "Folder connected: $it audio tracks" }
+                        ?: "Folder access saved; start the server to scan it",
+                    Toast.LENGTH_LONG
+                ).show()
             } else {
-                Toast.makeText(this, R.string.folder_access_failed, Toast.LENGTH_LONG).show()
+                Toast.makeText(
+                    this,
+                    "Android did not grant persistent access to this folder",
+                    Toast.LENGTH_LONG
+                ).show()
             }
         }
     }
@@ -77,19 +106,18 @@ class MainActivity : AppCompatActivity() {
             val binder = service as NetworkServerService.LocalBinder
             serverService = binder.getService()
             isBound = true
-            refreshMediaLibrary()
-            updateMediaSourceUI()
+            Timber.tag(TAG).d("Service connected")
             updateServerUI(binder.getService().getServerState())
-
             if (pendingServerStartAfterServiceBinding) {
                 pendingServerStartAfterServiceBinding = false
-                requestServerStart()
+                startServer()
             }
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
             serverService = null
             isBound = false
+            Timber.tag(TAG).d("Service disconnected")
             updateServerUI(NetworkServerService.ServerState.STOPPED)
         }
     }
@@ -97,45 +125,138 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        networkDiagnostics = NetworkDiagnostics(applicationContext)
         initViews()
+        ensureMediaPermission()
         setupClickListeners()
-        ensureDefaultMusicPermission()
+        startNetworkMonitoring()
         bindToServerService()
-        startPeriodicUiUpdate()
+        startPeriodicUIUpdate()
     }
 
     override fun onDestroy() {
+        super.onDestroy()
         periodicUiJob?.cancel()
         periodicUiJob = null
+        stopNetworkMonitoring()
         unbindFromServerService()
-        super.onDestroy()
     }
 
     private fun initViews() {
         tvServerStatus = findViewById(R.id.tvServerStatus)
-        tvServerMessage = findViewById(R.id.tvServerMessage)
+        tvNetworkInfo = findViewById(R.id.tvNetworkInfo)
+        tvServicesInfo = findViewById(R.id.tvServicesInfo)
+        tvDiscoveryInfo = findViewById(R.id.tvDiscoveryInfo)
+        tvSessionInfo = findViewById(R.id.tvSessionInfo)
+        tvLibraryInfo = findViewById(R.id.tvLibraryInfo)
         tvMediaFolder = findViewById(R.id.tvMediaFolder)
-        tvTrackCount = findViewById(R.id.tvTrackCount)
+        tvFileServerInfo = findViewById(R.id.tvFileServerInfo)
+        tvEventLog = findViewById(R.id.tvEventLog)
         btnToggleServer = findViewById(R.id.btnToggleServer)
+        btnCopyDiagnostics = findViewById(R.id.btnCopyDiagnostics)
+        btnClearLogs = findViewById(R.id.btnClearLogs)
         btnSelectMediaFolder = findViewById(R.id.btnSelectMediaFolder)
         btnUseAllDeviceMusic = findViewById(R.id.btnUseAllDeviceMusic)
-        updateMediaSourceUI()
-        updateTrackCount()
+        etBridgeHost = findViewById(R.id.etBridgeHost)
+        etBridgeHost.setText(EaasEndpointConfig.loadBridgeHost(this))
+        updateMediaFolderLabel()
     }
 
     private fun setupClickListeners() {
         btnToggleServer.setOnClickListener { toggleServer() }
+        btnCopyDiagnostics.setOnClickListener { copyDiagnostics() }
+        btnClearLogs.setOnClickListener { clearLogs() }
         btnSelectMediaFolder.setOnClickListener { mediaFolderPicker.launch(null) }
         btnUseAllDeviceMusic.setOnClickListener { useAllDeviceMusic() }
+        etBridgeHost.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                EaasEndpointConfig.saveBridgeHost(this@MainActivity, s?.toString().orEmpty())
+            }
+            override fun afterTextChanged(s: Editable?) = Unit
+        })
+    }
+
+    private fun ensureMediaPermission() {
+        val permission = if (android.os.Build.VERSION.SDK_INT >= 33) {
+            Manifest.permission.READ_MEDIA_AUDIO
+        } else {
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        }
+        if (checkSelfPermission(permission) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(permission), MEDIA_PERMISSION_REQUEST)
+        } else {
+            ensureLocalNetworkPermission()
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        when (requestCode) {
+            MEDIA_PERMISSION_REQUEST -> {
+                val granted = grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED
+                Toast.makeText(
+                    this,
+                    if (granted) "Music library access granted" else "Music library access denied",
+                    Toast.LENGTH_SHORT
+                ).show()
+                ensureLocalNetworkPermission()
+            }
+            LOCAL_NETWORK_PERMISSION_REQUEST -> {
+                val granted = grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED
+                Toast.makeText(
+                    this,
+                    if (granted) "Local network access granted" else "Local network access denied",
+                    Toast.LENGTH_SHORT
+                ).show()
+                if (granted && pendingServerStartAfterLocalNetworkPermission) {
+                    pendingServerStartAfterLocalNetworkPermission = false
+                    startServer()
+                } else if (!granted) {
+                    pendingServerStartAfterLocalNetworkPermission = false
+                }
+            }
+        }
+    }
+
+    private fun ensureLocalNetworkPermission(): Boolean {
+        // Request Nearby devices on Android 13+ regardless of target SDK.
+        // Some OEM Android 16 builds backport local-network enforcement to
+        // legacy-targeted applications, so relying on targetSdk alone is unsafe.
+        if (android.os.Build.VERSION.SDK_INT < 33) {
+            return true
+        }
+        val permission = Manifest.permission.NEARBY_WIFI_DEVICES
+        val granted = checkSelfPermission(permission) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        Timber.tag(TAG).d("Local network / Nearby devices permission granted=$granted")
+        if (granted) {
+            return true
+        }
+        requestPermissions(arrayOf(permission), LOCAL_NETWORK_PERMISSION_REQUEST)
+        return false
+    }
+
+    private fun startNetworkMonitoring() {
+        networkDiagnostics.start()
+        networkDiagnostics.networkInfo.observe(this, Observer { info ->
+            updateNetworkUI(info)
+        })
+    }
+
+    private fun stopNetworkMonitoring() {
+        networkDiagnostics.stop()
     }
 
     private fun bindToServerService() {
-        if (isBound) return
-        bindService(
-            Intent(this, NetworkServerService::class.java),
-            serviceConnection,
-            Context.BIND_AUTO_CREATE
-        )
+        val intent = Intent(this, NetworkServerService::class.java)
+        if (!isBound) {
+            val bound = bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+            Timber.tag(TAG).d("bindToServerService autoCreate=$bound")
+        }
     }
 
     private fun unbindFromServerService() {
@@ -151,7 +272,9 @@ class MainActivity : AppCompatActivity() {
             NetworkServerService.ServerState.RUNNING -> stopServer()
             NetworkServerService.ServerState.STOPPED -> startServer()
             NetworkServerService.ServerState.STARTING,
-            NetworkServerService.ServerState.STOPPING -> Unit
+            NetworkServerService.ServerState.STOPPING -> {
+                Timber.tag(TAG).d("Ignoring toggle during server transition")
+            }
         }
     }
 
@@ -160,128 +283,161 @@ class MainActivity : AppCompatActivity() {
             pendingServerStartAfterLocalNetworkPermission = true
             Snackbar.make(
                 findViewById(android.R.id.content),
-                R.string.local_network_permission_required,
+                "Allow Nearby devices / local network access. Server will start automatically.",
                 Snackbar.LENGTH_LONG
             ).show()
             return
         }
         pendingServerStartAfterLocalNetworkPermission = false
 
-        if (serverService != null && isBound) {
-            requestServerStart()
-        } else {
-            pendingServerStartAfterServiceBinding = true
-            bindToServerService()
-            Snackbar.make(
-                findViewById(android.R.id.content),
-                R.string.server_starting,
-                Snackbar.LENGTH_SHORT
-            ).show()
-        }
-    }
-
-    private fun requestServerStart() {
-        serverService?.requestStart(50010)
-        updateServerUI(NetworkServerService.ServerState.STARTING)
-    }
-
-    private fun stopServer() {
         val service = serverService
-        if (service != null) {
-            service.requestStop()
-        } else {
-            val intent = Intent(this, NetworkServerService::class.java).apply {
-                action = NetworkServerService.ACTION_STOP_SERVER
-            }
-            runCatching { startService(intent) }
-        }
-        updateServerUI(NetworkServerService.ServerState.STOPPING)
-    }
-
-    private fun ensureLocalNetworkPermission(): Boolean {
-        if (android.os.Build.VERSION.SDK_INT < 33) return true
-
-        val permission = Manifest.permission.NEARBY_WIFI_DEVICES
-        if (checkSelfPermission(permission) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            return true
-        }
-
-        requestPermissions(arrayOf(permission), LOCAL_NETWORK_PERMISSION_REQUEST)
-        return false
-    }
-
-    private fun ensureDefaultMusicPermission() {
-        val selectedFolder = getSharedPreferences(MediaLibrary.PREFS_NAME, Context.MODE_PRIVATE)
-            .getString(MediaLibrary.KEY_SELECTED_TREE_URI, null)
-        if (!selectedFolder.isNullOrBlank()) return
-
-        val permission = mediaReadPermission()
-        if (checkSelfPermission(permission) == android.content.pm.PackageManager.PERMISSION_GRANTED) return
-
-        pendingDefaultMusicPermission = true
-        requestPermissions(arrayOf(permission), MEDIA_PERMISSION_REQUEST)
-    }
-
-    private fun mediaReadPermission(): String =
-        if (android.os.Build.VERSION.SDK_INT >= 33) {
-            Manifest.permission.READ_MEDIA_AUDIO
-        } else {
-            Manifest.permission.READ_EXTERNAL_STORAGE
-        }
-
-    private fun onMediaPermissionResult(granted: Boolean) {
-        val requestedAllMusic = pendingUseAllDeviceMusic
-        val requestedDefaultSource = pendingDefaultMusicPermission
-        pendingUseAllDeviceMusic = false
-        pendingDefaultMusicPermission = false
-
-        if (!granted) {
-            tvTrackCount.text = getString(R.string.music_access_required)
-            Toast.makeText(this, R.string.music_permission_denied, Toast.LENGTH_SHORT).show()
+        if (service != null && isBound) {
+            pendingServerStartAfterServiceBinding = false
+            service.requestStart(50010)
+            updateServerUI(NetworkServerService.ServerState.STARTING)
             return
         }
 
-        if (requestedAllMusic) {
-            switchToAllDeviceMusic()
-        } else if (requestedDefaultSource) {
-            refreshMediaLibrary()
-        }
+        pendingServerStartAfterServiceBinding = true
+        bindToServerService()
+        Snackbar.make(
+            findViewById(android.R.id.content),
+            "Starting local network server…",
+            Snackbar.LENGTH_SHORT
+        ).show()
     }
 
-    @Deprecated("Deprecated in Android API; retained for compatibility with the app's target SDK.")
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        when (requestCode) {
-            MEDIA_PERMISSION_REQUEST -> onMediaPermissionResult(
-                grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED
-            )
-            LOCAL_NETWORK_PERMISSION_REQUEST -> {
-                val granted = grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED
-                if (granted && pendingServerStartAfterLocalNetworkPermission) {
-                    pendingServerStartAfterLocalNetworkPermission = false
-                    startServer()
-                } else if (!granted) {
-                    pendingServerStartAfterLocalNetworkPermission = false
+    private fun stopServer() {
+        val intent = Intent(this, NetworkServerService::class.java).apply {
+            action = NetworkServerService.ACTION_STOP_SERVER
+        }
+        serverService?.requestStop() ?: runCatching { startService(intent) }
+        updateServerUI(NetworkServerService.ServerState.STOPPING)
+    }
+
+    private fun updateServerUI(state: NetworkServerService.ServerState) {
+        runOnUiThread {
+            when (state) {
+                NetworkServerService.ServerState.RUNNING -> {
+                    tvServerStatus.text = getString(R.string.server_status_on)
+                    tvServerStatus.setTextColor(getColor(R.color.green_500))
+                    btnToggleServer.text = getString(R.string.server_button_on)
+                    btnToggleServer.isEnabled = true
+                }
+                NetworkServerService.ServerState.STARTING -> {
+                    tvServerStatus.text = getString(R.string.server_status_starting)
+                    tvServerStatus.setTextColor(getColor(R.color.amber_500))
+                    btnToggleServer.text = getString(R.string.server_button_starting)
+                    btnToggleServer.isEnabled = false
+                }
+                NetworkServerService.ServerState.STOPPING -> {
+                    tvServerStatus.text = getString(R.string.server_status_stopping)
+                    tvServerStatus.setTextColor(getColor(R.color.amber_500))
+                    btnToggleServer.text = getString(R.string.server_button_stopping)
+                    btnToggleServer.isEnabled = false
+                }
+                NetworkServerService.ServerState.STOPPED -> {
+                    tvServerStatus.text = getString(R.string.server_status_off)
+                    tvServerStatus.setTextColor(getColor(R.color.red_500))
+                    btnToggleServer.text = getString(R.string.server_button_off)
+                    btnToggleServer.isEnabled = true
                 }
             }
         }
     }
 
-    private fun useAllDeviceMusic() {
-        val permission = mediaReadPermission()
-        if (checkSelfPermission(permission) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            pendingUseAllDeviceMusic = true
-            requestPermissions(arrayOf(permission), MEDIA_PERMISSION_REQUEST)
-            return
+    private fun updateNetworkUI(info: NetworkDiagnostics.NetworkInfoData) {
+        runOnUiThread {
+            val sb = StringBuilder()
+            sb.append("Interface: ${info.interfaceName}\n")
+            sb.append("IPv4: ${info.ipv4Addresses.joinToString(", ") { if (it.isEmpty()) "none" else it }}\n")
+            sb.append("IPv6: ${info.ipv6Addresses.joinToString(", ") { if (it.isEmpty()) "none" else it }}\n")
+            sb.append("Subnet: ${info.subnet}\n")
+            sb.append("Gateway: ${info.gateway}\n")
+            sb.append("SSID: ${info.ssid}\n")
+            sb.append("VPN: ${if (info.vpnActive) "YES" else "NO"}\n")
+            sb.append("State: ${info.connectivityState}")
+            tvNetworkInfo.text = sb.toString()
         }
-        switchToAllDeviceMusic()
     }
 
-    private fun switchToAllDeviceMusic() {
+    private fun refreshNetworkInfo() {
+        networkDiagnostics.refresh()
+    }
+
+    private fun startPeriodicUIUpdate() {
+        periodicUiJob?.cancel()
+        periodicUiJob = lifecycleScope.launch {
+            while (isActive) {
+                val service = serverService
+                if (service != null) {
+                    updateDiagnosticsUI()
+                    updateServerUI(service.getServerState())
+                }
+                delay(500)
+            }
+        }
+    }
+
+    private fun updateDiagnosticsUI() {
+        val diag = serverService?.getDiagnostics()
+        if (diag == null) return
+
+        runOnUiThread {
+            val port = serverService?.getBoundPort() ?: 0
+            val iface = serverService?.getBoundInterface() ?: "none"
+            val httpPort = serverService?.getHttpBoundPort() ?: 0
+            val httpError = serverService?.getHttpBindError()
+            val advertised = serverService?.getAdvertisedEndpoint()
+            tvServicesInfo.text = "TCP gRPC: ${if (port > 0) "$iface:$port" else "not bound"}\n" +
+                    "EAAS UDP discovery: ${if (port > 0) "0.0.0.0:11224" else "not bound"}\n" +
+                    "HTTP local: ${if (httpPort > 0) httpPort else "OFF"}\n" +
+                    "Advertised to Prime GO: ${if (advertised != null && advertised.grpcPort > 0) "${advertised.host}:${advertised.grpcPort}" else "inactive"}" +
+                    (if (httpError != null) "\nHTTP error: $httpError" else "")
+
+            tvDiscoveryInfo.text = "Discovery: ${if (port > 0) "ON" else "OFF"}\nRX: ${diag.discoveryRxCount.get()} | TX: ${diag.discoveryTxCount.get()}\nLast RX: ${if (diag.lastDiscoveryRx > 0) formatTime(diag.lastDiscoveryRx) else "never"}\nLast TX: ${if (diag.lastDiscoveryTx > 0) formatTime(diag.lastDiscoveryTx) else "never"}"
+
+            tvSessionInfo.text = "Raw TCP: ${diag.rawTcpAccepts.get()} total / ${diag.externalRawTcpAccepts.get()} external / ${diag.localSelfTestRawTcpAccepts.get()} local\ngRPC: ${diag.connectionsOpened.get()} total / ${diag.externalConnectionsOpened.get()} external / ${diag.localSelfTestConnections.get()} local\nTrust: ${diag.trustMessages.get()} total / ${diag.externalTrustMessages.get()} external / ${diag.localSelfTestTrustMessages.get()} local\nRPC: ${diag.rpcCount.get()} total / ${diag.externalRpcCount.get()} external / ${diag.localSelfTestRpcCount.get()} local\nExternal methods: ${diag.observedExternalRpcMethods.joinToString(", ") { if (it.isEmpty()) "none" else it }}\nPhone -> Prime GO TCP/50010: ${diag.primeGoPort50010 ?: "not probed"}\nPhone -> Prime GO TCP/50020: ${diag.primeGoPort50020 ?: "not probed"}\nPhone -> Prime GO TCP/50021: ${diag.primeGoPort50021 ?: "not probed"}\nPhone -> Prime GO gRPC probe on 50010: ${diag.primeGoGrpcLibraryProbe ?: "not probed"}\nPrime GO high ports: ${diag.primeGoHighPortScan ?: "not finished"}\nHigh-port gRPC probes: ${diag.primeGoHighPortGrpcProbes ?: "none"}\nScan progress: ${diag.primeGoHighPortScanProgress ?: "not started"}\nLast external Client: ${diag.lastClientIp ?: "none"}\nLast Contact: ${if (diag.lastClientContact > 0) formatTime(diag.lastClientContact) else "never"}"
+
+            val indexedTracks = serverService?.getIndexedTrackCount() ?: 0
+            tvLibraryInfo.text = "Indexed: $indexedTracks | Supported: audio/*\nHTTP source: /download/<encoded media path>"
+
+            tvFileServerInfo.text = "Requests: ${diag.fileRequests.get()}\nBytes: ${diag.bytesServed.get()}\nRanges: ${diag.rangeRequests.get()}\n404: ${diag.errors404.get()} | 416: ${diag.errors416.get()} | 500: ${diag.errors500.get()}\nOpen Failures: ${diag.openFileFailures.get()}"
+
+            val logs = diag.getLogEntries().takeLast(20).joinToString("\n") { "[${formatTime(it.timestamp)}] ${it.level} ${it.tag}: ${it.message}" }
+            tvEventLog.text = if (logs.isEmpty()) "[No log entries]" else logs
+        }
+    }
+
+    private fun copyDiagnostics() {
+        val diag = serverService?.getDiagnostics()
+        val report = diag?.generateDiagnosticReport() ?: "Server not running"
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val clip = android.content.ClipData.newPlainText("Diagnostic Report", report)
+        clipboard.setPrimaryClip(clip)
+        Snackbar.make(findViewById(android.R.id.content), "Diagnostic report copied to clipboard", Snackbar.LENGTH_LONG).show()
+    }
+
+    private fun clearLogs() {
+        serverService?.getDiagnostics()?.clearLogs()
+        tvEventLog.text = "[Logs cleared]"
+    }
+
+    private fun updateMediaFolderLabel() {
+        val selected = getSharedPreferences(MediaLibrary.PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(MediaLibrary.KEY_SELECTED_TREE_URI, null)
+        tvMediaFolder.text = if (selected.isNullOrBlank()) {
+            getString(R.string.media_folder_all)
+        } else {
+            val uri = Uri.parse(selected)
+            val documentId = runCatching { DocumentsContract.getTreeDocumentId(uri) }
+                .getOrDefault(uri.lastPathSegment.orEmpty())
+            val folderName = documentId.substringAfter(':', documentId)
+            getString(R.string.media_folder_selected, folderName)
+        }
+    }
+
+    private fun useAllDeviceMusic() {
         val preferences = getSharedPreferences(MediaLibrary.PREFS_NAME, Context.MODE_PRIVATE)
         preferences.getString(MediaLibrary.KEY_SELECTED_TREE_URI, null)?.let { selected ->
             runCatching {
@@ -292,83 +448,16 @@ class MainActivity : AppCompatActivity() {
             }
         }
         preferences.edit().remove(MediaLibrary.KEY_SELECTED_TREE_URI).apply()
-        refreshMediaLibrary()
-        updateMediaSourceUI()
-        Toast.makeText(this, R.string.using_all_device_music, Toast.LENGTH_SHORT).show()
+        val count = runCatching { serverService?.refreshMediaLibrary() }.getOrNull()
+        updateMediaFolderLabel()
+        Toast.makeText(
+            this,
+            count?.let { "Using all device audio: $it tracks" } ?: "Using all indexed device audio",
+            Toast.LENGTH_SHORT
+        ).show()
     }
 
-    private fun refreshMediaLibrary() {
-        runCatching { serverService?.refreshMediaLibrary() }
-        updateTrackCount()
-    }
-
-    private fun updateMediaSourceUI() {
-        val selected = getSharedPreferences(MediaLibrary.PREFS_NAME, Context.MODE_PRIVATE)
-            .getString(MediaLibrary.KEY_SELECTED_TREE_URI, null)
-
-        if (selected.isNullOrBlank()) {
-            tvMediaFolder.text = getString(R.string.source_all_device_music)
-        } else {
-            val uri = Uri.parse(selected)
-            val documentId = runCatching { DocumentsContract.getTreeDocumentId(uri) }
-                .getOrDefault(uri.lastPathSegment.orEmpty())
-            val folderName = documentId.substringAfter(':', documentId)
-            tvMediaFolder.text = getString(R.string.source_selected_folder, folderName)
-        }
-    }
-
-    private fun updateTrackCount() {
-        val count = runCatching { serverService?.getIndexedTrackCount() ?: 0 }.getOrDefault(0)
-        tvTrackCount.text = resources.getQuantityString(R.plurals.track_count, count, count)
-    }
-
-    private fun updateServerUI(state: NetworkServerService.ServerState) {
-        runOnUiThread {
-            when (state) {
-                NetworkServerService.ServerState.RUNNING -> {
-                    tvServerStatus.text = getString(R.string.server_status_on)
-                    tvServerStatus.setTextColor(getColor(R.color.green_500))
-                    btnToggleServer.text = getString(R.string.stop_server)
-                    btnToggleServer.isEnabled = true
-                    tvServerMessage.text = getString(R.string.server_running_message)
-                }
-                NetworkServerService.ServerState.STARTING -> {
-                    tvServerStatus.text = getString(R.string.server_status_starting)
-                    tvServerStatus.setTextColor(getColor(R.color.amber_500))
-                    btnToggleServer.text = getString(R.string.server_starting)
-                    btnToggleServer.isEnabled = false
-                    tvServerMessage.text = getString(R.string.server_starting_message)
-                }
-                NetworkServerService.ServerState.STOPPING -> {
-                    tvServerStatus.text = getString(R.string.server_status_stopping)
-                    tvServerStatus.setTextColor(getColor(R.color.amber_500))
-                    btnToggleServer.text = getString(R.string.server_stopping)
-                    btnToggleServer.isEnabled = false
-                    tvServerMessage.text = getString(R.string.server_stopping_message)
-                }
-                NetworkServerService.ServerState.STOPPED -> {
-                    tvServerStatus.text = getString(R.string.server_status_off)
-                    tvServerStatus.setTextColor(getColor(R.color.red_500))
-                    btnToggleServer.text = getString(R.string.start_server)
-                    btnToggleServer.isEnabled = true
-                    val startupError = serverService?.getLastStartupError()
-                    tvServerMessage.text = startupError?.takeIf { it.isNotBlank() }
-                        ?: getString(R.string.server_stopped_message)
-                }
-            }
-        }
-    }
-
-    private fun startPeriodicUiUpdate() {
-        periodicUiJob?.cancel()
-        periodicUiJob = lifecycleScope.launch {
-            while (isActive) {
-                serverService?.let { service ->
-                    updateServerUI(service.getServerState())
-                    updateTrackCount()
-                }
-                delay(1000)
-            }
-        }
+    private fun formatTime(timestamp: Long): String {
+        return android.text.format.DateFormat.format("HH:mm:ss", timestamp).toString()
     }
 }
