@@ -17,7 +17,8 @@ class GrpcServerSocketFactory(
     private val diagnostics: ServerDiagnostics,
     private val bindAddress: String = "0.0.0.0",
     private val bindIpv6Wildcard: Boolean = false,
-    private val reuseAddress: Boolean = false
+    private val reuseAddress: Boolean = false,
+    private val localAddresses: Set<String> = emptySet()
 ) : ServerSocketFactory() {
     override fun createServerSocket(): ServerSocket = LoggingServerSocket()
 
@@ -50,15 +51,15 @@ class GrpcServerSocketFactory(
         override fun accept(): Socket {
             val socket = super.accept()
             val remote = socket.remoteSocketAddress
-            diagnostics.rawTcpAccepts.incrementAndGet()
-            diagnostics.lastClientContact = System.currentTimeMillis()
-            diagnostics.lastClientIp =
+            val remoteIp =
                 (remote as? InetSocketAddress)?.address?.hostAddress ?: remote?.toString()
+            val local = NetworkAddress.isLocalPeerAddress(remoteIp, localAddresses)
+            diagnostics.recordRawTcpAccept(remoteIp, local)
             diagnostics.info(
                 "EAAS-TCP",
-                "Raw TCP accept from " +
-                    (diagnostics.lastClientIp ?: "unknown") + ":" +
-                    ((remote as? InetSocketAddress)?.port ?: "?")
+                "Raw TCP accept from " + (remoteIp ?: "unknown") +
+                    ":" + ((remote as? InetSocketAddress)?.port ?: "?") +
+                    if (local) " (local self-test)" else " (external peer)"
             )
             return socket
         }

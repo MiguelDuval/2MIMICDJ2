@@ -154,7 +154,9 @@ class NetworkServerService : Service() {
                         .newBlockingStub(channel)
                         .createTrust(
                             com.miguenduval.mimicdj2.eaas.networktrust.CreateTrustRequest
-                                .getDefaultInstance()
+                                .newBuilder()
+                                .setDeviceName(NetworkTrustGrpcService.INTERNAL_SELF_TEST_DEVICE_NAME)
+                                .build()
                         )
 
                 val librariesResponse =
@@ -244,6 +246,7 @@ class NetworkServerService : Service() {
             for (bindIpv6Wildcard in listOf(false, true)) {
                 var localServer: Server? = null
                 try {
+                val localAddresses = setOf(advertisedHost, "127.0.0.1", "::1")
                 val candidateLabel = if (candidatePort == 0) "ephemeral" else candidatePort.toString()
                 val bindLabel = if (bindIpv6Wildcard) {
                     "[$candidateLabel] via IPv6 dual-stack wildcard"
@@ -265,24 +268,34 @@ class NetworkServerService : Service() {
                             diagnostics = diagnostics,
                             bindAddress = advertisedHost,
                             bindIpv6Wildcard = bindIpv6Wildcard,
-                            reuseAddress = false
+                            reuseAddress = false,
+                            localAddresses = localAddresses
                         )
                     )
                     .executor(executor)
                     .addService(NetworkTrustGrpcService(diagnostics))
                     .addService(
-                        EngineLibraryGrpcService(mediaLibrary) {
-                            val bridgeHost = EaasEndpointConfig.loadBridgeHost(applicationContext)
-                            if (bridgeHost.isNotBlank()) {
-                                bridgeHost
-                            } else {
-                                NetworkAddress.currentLanIpv4(applicationContext) ?: advertisedHost
+                        EngineLibraryGrpcService(
+                            library = mediaLibrary,
+                            serverHost = {
+                                val bridgeHost = EaasEndpointConfig.loadBridgeHost(applicationContext)
+                                if (bridgeHost.isNotBlank()) {
+                                    bridgeHost
+                                } else {
+                                    NetworkAddress.currentLanIpv4(applicationContext) ?: advertisedHost
+                                }
+                            },
+                            serverHttpPort = {
+                                EaasEndpointConfig.advertisedHttpPort(
+                                    localHttpPort = httpBoundPort,
+                                    bridgeHost = EaasEndpointConfig.loadBridgeHost(applicationContext)
+                                )
                             }
-                        }
+                        )
                     )
                     .addService(MimicEngineSyncService())
-                    .intercept(RpcDiagnosticsInterceptor(diagnostics))
-                    .addTransportFilter(GrpcTransportDiagnosticsFilter(diagnostics))
+                    .intercept(RpcDiagnosticsInterceptor(diagnostics, localAddresses))
+                    .addTransportFilter(GrpcTransportDiagnosticsFilter(diagnostics, localAddresses))
                     .build()
                     .start()
 
@@ -591,10 +604,16 @@ class NetworkServerService : Service() {
                                     diagnostics.primeGoPort50010 = probeTcpEndpoint(peer, 50010)
                                     diagnostics.primeGoPort50020 = probeTcpEndpoint(peer, 50020)
                                     diagnostics.primeGoPort50021 = probeTcpEndpoint(peer, 50021)
+                                    diagnostics.primeGoGrpcLibraryProbe =
+                                        PrimeGoGrpcCompatibilityProbe.getLibraries(peer, 50010)
                                     diagnostics.info(
                                         TAG,
                                         "Prime GO reverse TCP probes: 50010=${diagnostics.primeGoPort50010}, " +
                                             "50020=${diagnostics.primeGoPort50020}, 50021=${diagnostics.primeGoPort50021}"
+                                    )
+                                    diagnostics.info(
+                                        TAG,
+                                        "Prime GO EngineLibrary.GetLibraries on TCP/50010: ${diagnostics.primeGoGrpcLibraryProbe}"
                                     )
                                 }
                             }
@@ -603,12 +622,14 @@ class NetworkServerService : Service() {
                         if (!primeGoHighPortScanStarted) {
                             primeGoHighPortScanStarted = true
                             scope.launch {
-                                kotlinx.coroutines.delay(5000L)
-                                if (diagnostics.rawTcpAccepts.get() > 0 ||
-                                    diagnostics.connectionsOpened.get() > 0 ||
-                                    diagnostics.rpcCount.get() > 0
+                                // The reference captures show that some Engine directory/service
+                                // listeners are transient. Start the read-only scan immediately,
+                                // and do not let this phone's own self-tests suppress it.
+                                if (diagnostics.externalRawTcpAccepts.get() > 0 ||
+                                    diagnostics.externalConnectionsOpened.get() > 0 ||
+                                    diagnostics.externalRpcCount.get() > 0
                                 ) {
-                                    diagnostics.primeGoHighPortScan = "SKIPPED: server contact already observed"
+                                    diagnostics.primeGoHighPortScan = "SKIPPED: external server contact already observed"
                                     diagnostics.primeGoHighPortScanProgress = "not needed"
                                     return@launch
                                 }
@@ -616,9 +637,20 @@ class NetworkServerService : Service() {
                                 val peer = sender?.address?.hostAddress
                                 if (!peer.isNullOrBlank()) {
                                     diagnostics.primeGoHighPortScanProgress = "STARTING"
-                                    val result = PrimeGoPortScanner.scan(peer) { completed, total ->
-                                        diagnostics.primeGoHighPortScanProgress = "$completed/$total"
-                                    }
+                                    val findings = java.util.Collections.synchronizedList(mutableListOf<String>())
+                                    val result = PrimeGoPortScanner.scan(
+                                        host = peer,
+                                        onProgress = { completed, total ->
+                                            diagnostics.primeGoHighPortScanProgress = "$completed/$total"
+                                        },
+                                        onPortOpen = { openPort ->
+                                            val fingerprint = PrimeGoGrpcCompatibilityProbe.getLibraries(peer, openPort)
+                                            val finding = "$openPort=$fingerprint"
+                                            findings.add(finding)
+                                            diagnostics.primeGoHighPortGrpcProbes = findings.joinToString(" | ")
+                                            diagnostics.info(TAG, "Prime GO transient TCP/$openPort: $fingerprint")
+                                        }
+                                    )
                                     diagnostics.primeGoHighPortScan = result.summary
                                     diagnostics.primeGoHighPortScanProgress =
                                         "${result.completed}/${result.total}"

@@ -26,7 +26,11 @@ object PrimeGoPortScanner {
         val total: Int
     )
 
-    fun scan(host: String, onProgress: (completed: Int, total: Int) -> Unit): Result {
+    fun scan(
+        host: String,
+        onProgress: (completed: Int, total: Int) -> Unit,
+        onPortOpen: (port: Int) -> Unit = {}
+    ): Result {
         val open = Collections.synchronizedList(mutableListOf<Int>())
         val nextPort = AtomicInteger(FIRST_PORT)
         val completed = AtomicInteger(0)
@@ -42,6 +46,7 @@ object PrimeGoPortScanner {
 
                         if (probe(host, port)) {
                             open.add(port)
+                            runCatching { onPortOpen(port) }
                         }
 
                         val done = completed.incrementAndGet()

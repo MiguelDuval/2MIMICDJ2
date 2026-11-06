@@ -12,6 +12,18 @@ import java.net.NetworkInterface
  */
 object NetworkAddress {
 
+    fun isLocalPeerAddress(peerAddress: String?, localAddresses: Set<String>): Boolean {
+        val peer = normalizeAddress(peerAddress) ?: return false
+        if (peer == "127.0.0.1" || peer == "::1") return true
+        return localAddresses.any { normalizeAddress(it) == peer }
+    }
+
+    private fun normalizeAddress(value: String?): String? {
+        val raw = value?.substringBefore('%')?.trim()?.lowercase().orEmpty()
+        if (raw.isEmpty()) return null
+        return if (raw.startsWith("::ffff:")) raw.substringAfterLast(':') else raw
+    }
+
     fun currentLanIpv4(context: Context): String? {
         val interfaces = NetworkInterface.getNetworkInterfaces()?.toList() ?: return null
         val candidates = interfaces

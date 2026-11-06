@@ -28,9 +28,17 @@ class ServerDiagnostics {
     val discoveryRxCount = AtomicLong(0)
     val discoveryTxCount = AtomicLong(0)
     val connectionsOpened = AtomicLong(0)
+    val externalConnectionsOpened = AtomicLong(0)
+    val localSelfTestConnections = AtomicLong(0)
     val rawTcpAccepts = AtomicLong(0)
+    val externalRawTcpAccepts = AtomicLong(0)
+    val localSelfTestRawTcpAccepts = AtomicLong(0)
     val trustMessages = AtomicLong(0)
+    val externalTrustMessages = AtomicLong(0)
+    val localSelfTestTrustMessages = AtomicLong(0)
     val rpcCount = AtomicLong(0)
+    val externalRpcCount = AtomicLong(0)
+    val localSelfTestRpcCount = AtomicLong(0)
     val fileRequests = AtomicLong(0)
     val bytesServed = AtomicLong(0)
     val rangeRequests = AtomicLong(0)
@@ -53,16 +61,66 @@ class ServerDiagnostics {
     @Volatile var primeGoPort50010: String? = null
     @Volatile var primeGoPort50020: String? = null
     @Volatile var primeGoPort50021: String? = null
+    @Volatile var primeGoGrpcLibraryProbe: String? = null
     @Volatile var primeGoHighPortScan: String? = null
     @Volatile var primeGoHighPortScanProgress: String? = null
+    @Volatile var primeGoHighPortGrpcProbes: String? = null
 
     // Last payloads for inspection
     var lastDiscoveryRxPayload: ByteArray? = null
     var lastDiscoveryTxPayload: ByteArray? = null
     var lastClientIp: String? = null
 
-    // RPC method names observed
-    val observedRpcMethods = mutableSetOf<String>()
+    // RPC method names are split so internal self-tests never masquerade as hardware traffic.
+    val observedRpcMethods = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    val observedExternalRpcMethods = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    val observedLocalSelfTestRpcMethods = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+    fun recordRawTcpAccept(remoteIp: String?, local: Boolean) {
+        rawTcpAccepts.incrementAndGet()
+        if (local) {
+            localSelfTestRawTcpAccepts.incrementAndGet()
+        } else {
+            externalRawTcpAccepts.incrementAndGet()
+            lastClientContact = System.currentTimeMillis()
+            if (!remoteIp.isNullOrBlank()) lastClientIp = remoteIp
+        }
+    }
+
+    fun recordGrpcTransport(remoteIp: String?, local: Boolean) {
+        connectionsOpened.incrementAndGet()
+        if (local) {
+            localSelfTestConnections.incrementAndGet()
+        } else {
+            externalConnectionsOpened.incrementAndGet()
+            lastClientContact = System.currentTimeMillis()
+            if (!remoteIp.isNullOrBlank()) lastClientIp = remoteIp
+        }
+    }
+
+    fun recordGrpcRpc(method: String, remoteIp: String?, local: Boolean) {
+        rpcCount.incrementAndGet()
+        observedRpcMethods.add(method)
+        if (local) {
+            localSelfTestRpcCount.incrementAndGet()
+            observedLocalSelfTestRpcMethods.add(method)
+        } else {
+            externalRpcCount.incrementAndGet()
+            observedExternalRpcMethods.add(method)
+            lastClientContact = System.currentTimeMillis()
+            if (!remoteIp.isNullOrBlank()) lastClientIp = remoteIp
+        }
+    }
+
+    fun recordTrustMessage(localSelfTest: Boolean) {
+        trustMessages.incrementAndGet()
+        if (localSelfTest) {
+            localSelfTestTrustMessages.incrementAndGet()
+        } else {
+            externalTrustMessages.incrementAndGet()
+            lastTrustRequest = System.currentTimeMillis()
+        }
+    }
 
     data class LogEntry(
         val timestamp: Long,
@@ -109,11 +167,12 @@ class ServerDiagnostics {
         sb.append("Last TX Payload: ${lastDiscoveryTxPayload?.let { bytesToHex(it) } ?: "none"}\n\n")
 
         sb.append("--- Sessions ---\n")
-        sb.append("Connections: ${connectionsOpened.get()}\n")
-        sb.append("Raw TCP accepts: ${rawTcpAccepts.get()}\n")
-        sb.append("Trust Msgs: ${trustMessages.get()}\n")
-        sb.append("RPC Calls: ${rpcCount.get()}\n")
-        sb.append("RPC Methods: ${observedRpcMethods.joinToString(", ") { if (it.isEmpty()) "none" else it }}\n")
+        sb.append("gRPC connections total: " + connectionsOpened.get() + " | external: " + externalConnectionsOpened.get() + " | local self-test: " + localSelfTestConnections.get() + "\n")
+        sb.append("Raw TCP accepts total: " + rawTcpAccepts.get() + " | external: " + externalRawTcpAccepts.get() + " | local self-test: " + localSelfTestRawTcpAccepts.get() + "\n")
+        sb.append("Trust Msgs total: " + trustMessages.get() + " | external: " + externalTrustMessages.get() + " | local self-test: " + localSelfTestTrustMessages.get() + "\n")
+        sb.append("RPC Calls total: " + rpcCount.get() + " | external: " + externalRpcCount.get() + " | local self-test: " + localSelfTestRpcCount.get() + "\n")
+        sb.append("External RPC methods: " + observedExternalRpcMethods.joinToString(", ") { if (it.isEmpty()) "none" else it } + "\n")
+        sb.append("Local self-test RPC methods: " + observedLocalSelfTestRpcMethods.joinToString(", ") { if (it.isEmpty()) "none" else it } + "\n")
         sb.append("Last Trust: ${if (lastTrustRequest > 0) fmt.format(Date(lastTrustRequest)) else "never"}\n")
         sb.append("Last Library: ${if (lastLibraryRequest > 0) fmt.format(Date(lastLibraryRequest)) else "never"}\n")
         sb.append("Last Track: ${if (lastTrackRequest > 0) fmt.format(Date(lastTrackRequest)) else "never"}\n")
@@ -122,8 +181,10 @@ class ServerDiagnostics {
         sb.append("Prime GO TCP/50010: ${primeGoPort50010 ?: "not probed"}\n")
         sb.append("Prime GO TCP/50020: ${primeGoPort50020 ?: "not probed"}\n")
         sb.append("Prime GO TCP/50021: ${primeGoPort50021 ?: "not probed"}\n")
+        sb.append("Prime GO gRPC/50010 GetLibraries: ${primeGoGrpcLibraryProbe ?: "not probed"}\n")
         sb.append("Prime GO high-port scan: ${primeGoHighPortScan ?: "not started"}\n")
-        sb.append("Prime GO high-port scan progress: ${primeGoHighPortScanProgress ?: "not started"}\n\n")
+        sb.append("Prime GO high-port scan progress: ${primeGoHighPortScanProgress ?: "not started"}\n")
+        sb.append("Prime GO high-port gRPC probes: ${primeGoHighPortGrpcProbes ?: "none"}\n\n")
 
         sb.append("--- File Server ---\n")
         sb.append("Requests: ${fileRequests.get()}\n")
