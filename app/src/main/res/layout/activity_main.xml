@@ -73,7 +73,8 @@
 
                         <Button
                             android:id="@+id/btnCopyDiagnostics"
-                            android:layout_width="0dp"
+                        android:visibility="gone"
+                        android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="@string/copy_diagnostics"
@@ -83,12 +84,14 @@
 
                     <Button
                         android:id="@+id/btnClearLogs"
+                        android:visibility="gone"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
                         android:text="@string/clear_logs" />
 
                     <TextView
+                        android:visibility="gone"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="14dp"
@@ -98,6 +101,7 @@
 
                     <EditText
                         android:id="@+id/etBridgeHost"
+                        android:visibility="gone"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
@@ -106,6 +110,7 @@
                         android:singleLine="true" />
 
                     <TextView
+                        android:visibility="gone"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
@@ -120,6 +125,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="16dp"
+                android:visibility="gone"
                 app:cardElevation="2dp">
 
                 <LinearLayout
@@ -153,6 +159,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="16dp"
+                android:visibility="gone"
                 app:cardElevation="2dp">
 
                 <LinearLayout
@@ -187,6 +194,7 @@ UDP: not bound"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="16dp"
+                android:visibility="gone"
                 app:cardElevation="2dp">
 
                 <LinearLayout
@@ -221,6 +229,7 @@ Last TX: never"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="16dp"
+                android:visibility="gone"
                 app:cardElevation="2dp">
 
                 <LinearLayout
@@ -277,6 +286,7 @@ Last Contact: never"
 
                     <TextView
                         android:id="@+id/tvLibraryInfo"
+                        android:visibility="gone"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
@@ -322,6 +332,7 @@ Unreadable: 0 | Duplicates: 0"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="16dp"
+                android:visibility="gone"
                 app:cardElevation="2dp">
 
                 <LinearLayout
@@ -358,6 +369,7 @@ Open Failures: 0"
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:visibility="gone"
                 app:cardElevation="2dp">
 
                 <LinearLayout
