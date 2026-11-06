@@ -308,7 +308,9 @@ class NetworkServerService : Service() {
                                 if (bridgeHost.isNotBlank()) {
                                     bridgeHost
                                 } else {
-                                    NetworkAddress.currentLanIpv4(applicationContext) ?: advertisedHost
+                                    // The media URL must use the same concrete interface address
+                                    // as the gRPC listener and the EAAS endpoint advertised to Engine.
+                                    advertisedHost
                                 }
                             },
                             serverHttpPort = {
