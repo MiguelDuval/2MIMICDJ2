@@ -21,7 +21,7 @@ class MediaLibraryTrackUrlTest {
     fun track_url_can_use_the_actual_fallback_http_listener_port() {
         val rawKey = "<C:/Music/test.mp3>"
         val path = "/download/" + encodeHttpPathComponent(rawKey)
-        val url = "http://10.0.0.7:50110$path"
+        val url = buildEaasTrackHttpUrl("10.0.0.7", 50110, path)
 
         assertEquals(
             "http://10.0.0.7:50110/download/%3CC%3A%2FMusic%2Ftest.mp3%3E",

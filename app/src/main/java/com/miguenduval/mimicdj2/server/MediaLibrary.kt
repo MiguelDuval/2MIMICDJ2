@@ -34,7 +34,7 @@ class MediaLibrary(context: Context) {
         fun httpPath(): String = "/download/" + encodeHttpPathComponent("<$pathKey>")
 
         fun httpUrl(host: String, port: Int = HTTP_PORT): String =
-            "http://$host:$port" + httpPath()
+            buildEaasTrackHttpUrl(host, port, httpPath())
     }
 
     companion object {
@@ -175,6 +175,13 @@ class MediaLibrary(context: Context) {
         MimeTypeMap.getSingleton()
             .getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase(Locale.US))
             ?: "application/octet-stream"
+}
+
+
+internal fun buildEaasTrackHttpUrl(host: String, port: Int, path: String): String {
+    require(port in 1..65535) { "invalid EAAS HTTP port: $port" }
+    require(path.startsWith("/")) { "EAAS track path must be absolute" }
+    return "http://" + host + ":" + port + path
 }
 
 private const val HEX_DIGITS = "0123456789ABCDEF"
