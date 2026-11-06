@@ -484,8 +484,22 @@ class NetworkServerService : Service() {
             while (httpServerFd === fd) {
                 try {
                     val clientFd = Os.accept(fd, null)
-                    diagnostics.httpAcceptedConnections.incrementAndGet()
-                    executor.execute { handleHttpClient(clientFd) }
+                    val peer = runCatching { Os.getpeername(clientFd) }.getOrNull()
+                    val remoteIp = (peer as? InetSocketAddress)?.address?.hostAddress
+                        ?: peer?.toString()
+                    val localSelfTest = NetworkAddress.isLocalPeerAddress(
+                        remoteIp,
+                        setOf(bindHost, "127.0.0.1", "::1")
+                    )
+                    diagnostics.recordHttpAccept(remoteIp, localSelfTest)
+                    diagnostics.info(
+                        TAG,
+                        "HTTP TCP accepted from ${remoteIp ?: "unknown"}" +
+                            if (localSelfTest) " (local self-test)" else " (external peer)"
+                    )
+                    executor.execute {
+                        handleHttpClient(clientFd, remoteIp, localSelfTest)
+                    }
                 } catch (t: Throwable) {
                     if (httpServerFd === fd) {
                         diagnostics.error(TAG, "HTTP native accept error", t)
@@ -637,8 +651,12 @@ class NetworkServerService : Service() {
                 }
             }
         )
-    private fun handleHttpClient(fd: FileDescriptor) {
-        httpFileServer.handle(fd)
+    private fun handleHttpClient(
+        fd: FileDescriptor,
+        remoteIp: String?,
+        localSelfTest: Boolean
+    ) {
+        httpFileServer.handle(fd, remoteIp, localSelfTest)
     }
     private fun startEaasDiscoveryListener() {
         scope.launch {

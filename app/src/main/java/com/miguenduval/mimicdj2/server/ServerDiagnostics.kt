@@ -40,6 +40,15 @@ class ServerDiagnostics {
     val externalRpcCount = AtomicLong(0)
     val localSelfTestRpcCount = AtomicLong(0)
     val httpAcceptedConnections = AtomicLong(0)
+    val externalHttpAcceptedConnections = AtomicLong(0)
+    val localSelfTestHttpAcceptedConnections = AtomicLong(0)
+    val httpRequests = AtomicLong(0)
+    val externalHttpRequests = AtomicLong(0)
+    val localSelfTestHttpRequests = AtomicLong(0)
+    val httpRequestParseFailures = AtomicLong(0)
+    @Volatile var lastHttpClientIp: String? = null
+    @Volatile var lastHttpRequest: String? = null
+    @Volatile var lastHttpStatus: String? = null
     @Volatile var httpListenerAddress: String? = null
     @Volatile var httpListenerPort: Int = 0
     @Volatile var httpListenerReadiness: String? = null
@@ -89,6 +98,37 @@ class ServerDiagnostics {
             lastClientContact = System.currentTimeMillis()
             if (!remoteIp.isNullOrBlank()) lastClientIp = remoteIp
         }
+    }
+
+    fun recordHttpAccept(remoteIp: String?, local: Boolean) {
+        httpAcceptedConnections.incrementAndGet()
+        if (local) {
+            localSelfTestHttpAcceptedConnections.incrementAndGet()
+        } else {
+            externalHttpAcceptedConnections.incrementAndGet()
+        }
+        if (!remoteIp.isNullOrBlank()) lastHttpClientIp = remoteIp
+    }
+
+    fun recordHttpRequest(method: String, target: String, remoteIp: String?, local: Boolean) {
+        httpRequests.incrementAndGet()
+        lastHttpRequest = "$method $target"
+        if (local) {
+            localSelfTestHttpRequests.incrementAndGet()
+        } else {
+            externalHttpRequests.incrementAndGet()
+            lastClientContact = System.currentTimeMillis()
+            if (!remoteIp.isNullOrBlank()) lastHttpClientIp = remoteIp
+        }
+    }
+
+    fun recordHttpRequestParseFailure(remoteIp: String?, local: Boolean) {
+        httpRequestParseFailures.incrementAndGet()
+        if (!local && !remoteIp.isNullOrBlank()) lastHttpClientIp = remoteIp
+    }
+
+    fun recordHttpStatus(status: Int) {
+        lastHttpStatus = status.toString()
     }
 
     fun recordGrpcTransport(remoteIp: String?, local: Boolean) {
@@ -193,7 +233,20 @@ class ServerDiagnostics {
         sb.append("--- HTTP Listener ---\n")
         sb.append("Bind target: ${httpListenerAddress ?: "unknown"}:${httpListenerPort}\n")
         sb.append("Readiness: ${httpListenerReadiness ?: "not tested"}\n")
-        sb.append("Accepted TCP connections: ${httpAcceptedConnections.get()}\n\n")
+        sb.append(
+            "Accepted TCP connections total: ${httpAcceptedConnections.get()} | " +
+                "external: ${externalHttpAcceptedConnections.get()} | " +
+                "local self-test: ${localSelfTestHttpAcceptedConnections.get()}\n"
+        )
+        sb.append(
+            "Parsed HTTP requests total: ${httpRequests.get()} | " +
+                "external: ${externalHttpRequests.get()} | " +
+                "local self-test: ${localSelfTestHttpRequests.get()}\n"
+        )
+        sb.append("Incomplete/empty HTTP requests: ${httpRequestParseFailures.get()}\n")
+        sb.append("Last HTTP client IP: ${lastHttpClientIp ?: "none"}\n")
+        sb.append("Last HTTP request: ${lastHttpRequest ?: "none"}\n")
+        sb.append("Last HTTP response status: ${lastHttpStatus ?: "none"}\n\n")
 
         sb.append("--- File Server ---\n")
         sb.append("Requests: ${fileRequests.get()}\n")

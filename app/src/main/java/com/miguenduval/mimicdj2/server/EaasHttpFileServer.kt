@@ -38,7 +38,11 @@ class EaasHttpFileServer(
         val length: Long get() = endInclusive - start + 1L
     }
 
-    fun handle(fd: java.io.FileDescriptor) {
+    fun handle(
+        fd: java.io.FileDescriptor,
+        remoteIp: String? = null,
+        localSelfTest: Boolean = false
+    ) {
         var input: InputStream? = null
         var output: OutputStream? = null
         try {
@@ -47,11 +51,24 @@ class EaasHttpFileServer(
             input = BufferedInputStream(FileInputStream(inputFd), 16 * 1024)
             output = BufferedOutputStream(java.io.FileOutputStream(outputFd), 64 * 1024)
 
-            val request = readRequest(input) ?: return
+            val request = readRequest(input)
+            if (request == null) {
+                diagnostics.recordHttpRequestParseFailure(remoteIp, localSelfTest)
+                diagnostics.warn(
+                    "EAAS-HTTP",
+                    "Client ${remoteIp ?: "unknown"} closed before sending a complete HTTP request"
+                )
+                return
+            }
             diagnostics.lastClientContact = System.currentTimeMillis()
 
             val target = request.target.substringBefore('?')
-            diagnostics.info("EAAS-HTTP", "${request.method} $target")
+            diagnostics.recordHttpRequest(request.method, target, remoteIp, localSelfTest)
+            diagnostics.info(
+                "EAAS-HTTP",
+                "${request.method} $target from ${remoteIp ?: "unknown"}" +
+                    if (localSelfTest) " (local self-test)" else " (external peer)"
+            )
 
             when {
                 request.method == "GET" && target == "/ping" -> {
@@ -101,7 +118,12 @@ class EaasHttpFileServer(
             output.flush()
         } catch (t: Throwable) {
             diagnostics.errors500.incrementAndGet()
-            diagnostics.error("EAAS-HTTP", "HTTP client handling failed", t)
+            diagnostics.recordHttpStatus(500)
+            diagnostics.error(
+                "EAAS-HTTP",
+                "HTTP client handling failed for ${remoteIp ?: "unknown"}",
+                t
+            )
         } finally {
             runCatching { output?.close() }
             runCatching { input?.close() }
@@ -186,6 +208,8 @@ class EaasHttpFileServer(
                     append("Connection: close\r\n")
                     append("\r\n")
                 }
+                diagnostics.recordHttpStatus(416)
+                diagnostics.warn("EAAS-HTTP", "Responded 416: invalid Range='$rangeHeader' size=$totalSize")
                 output.write(headers.toByteArray(Charsets.US_ASCII))
                 return
             }
@@ -196,6 +220,7 @@ class EaasHttpFileServer(
             val status = if (byteRange == null) 200 else 206
             val reason = if (status == 200) "OK" else "Partial Content"
 
+            diagnostics.recordHttpStatus(status)
             val headers = buildString {
                 append("HTTP/1.1 $status $reason\r\n")
                 append("Content-Type: ${track.mimeType}\r\n")
@@ -235,6 +260,10 @@ class EaasHttpFileServer(
             }
 
             diagnostics.bytesServed.addAndGet(length)
+            diagnostics.info(
+                "EAAS-HTTP",
+                "Completed download response: status=$status bytes=$length total=$totalSize range=${rangeHeader ?: "none"}"
+            )
         }
     }
 
@@ -361,6 +390,7 @@ class EaasHttpFileServer(
         body: ByteArray,
         includeBody: Boolean = true
     ) {
+        diagnostics.recordHttpStatus(status)
         val headers = buildString {
             append("HTTP/1.1 $status $reason\r\n")
             append("Content-Type: text/plain; charset=utf-8\r\n")
