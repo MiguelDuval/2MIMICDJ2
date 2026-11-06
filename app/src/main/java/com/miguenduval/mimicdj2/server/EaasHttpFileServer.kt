@@ -218,11 +218,43 @@ class EaasHttpFileServer(
                 ParcelFileDescriptor.dup(descriptor.fileDescriptor)
             )
             stream.use { fileInput ->
-                fileInput.channel.position(start)
+                if (start > 0L) {
+                    val positioned = runCatching {
+                        fileInput.channel.position(start)
+                        true
+                    }.getOrDefault(false)
+
+                    // SAF/cloud document providers may expose a pipe-backed
+                    // descriptor rather than a seekable file. Range requests
+                    // must still work by discarding bytes sequentially.
+                    if (!positioned) {
+                        skipExactly(fileInput, start)
+                    }
+                }
                 streamExactly(fileInput, output, length)
             }
 
             diagnostics.bytesServed.addAndGet(length)
+        }
+    }
+
+    private fun skipExactly(input: InputStream, length: Long) {
+        val discard = ByteArray(16 * 1024)
+        var remaining = length
+        while (remaining > 0L) {
+            val skipped = input.skip(remaining)
+            if (skipped > 0L) {
+                remaining -= skipped
+                continue
+            }
+            val wanted = minOf(discard.size.toLong(), remaining).toInt()
+            val read = input.read(discard, 0, wanted)
+            if (read < 0) {
+                throw java.io.EOFException(
+                    "Track ended while seeking to byte range: remaining=$remaining"
+                )
+            }
+            remaining -= read
         }
     }
 
