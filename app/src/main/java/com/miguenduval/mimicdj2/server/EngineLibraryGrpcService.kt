@@ -35,7 +35,8 @@ import io.grpc.stub.StreamObserver
 
 class EngineLibraryGrpcService(
     private val library: MediaLibrary,
-    private val serverHost: () -> String
+    private val serverHost: () -> String,
+    private val serverHttpPort: () -> Int = { MediaLibrary.HTTP_PORT }
 ) : EngineLibraryServiceGrpc.EngineLibraryServiceImplBase() {
 
     companion object {
@@ -91,19 +92,19 @@ class EngineLibraryGrpcService(
         } else {
             tracks
         }
-        val pageSize = if (request.hasPageSize() && request.pageSize > 0) request.pageSize else filtered.size
-        val limited = filtered.take(pageSize)
+        val listTracks = filtered.map { track ->
+            ListTrack.newBuilder()
+                .setMetadata(toMetadata(track))
+                .build()
+        }
 
-        val response = GetTracksResponse.newBuilder()
-        limited.forEach { track ->
-            response.addTracks(
-                ListTrack.newBuilder()
-                    .setMetadata(toMetadata(track))
+        EaasGrpcResponseBatcher.chunk(listTracks, request.pageSize).forEach { batch ->
+            responseObserver.onNext(
+                GetTracksResponse.newBuilder()
+                    .addAllTracks(batch)
                     .build()
             )
         }
-
-        responseObserver.onNext(response.build())
         responseObserver.onCompleted()
     }
 
@@ -122,9 +123,19 @@ class EngineLibraryGrpcService(
             }
         }
 
-        val response = SearchTracksResponse.newBuilder()
-        matches.forEach { response.addTracks(ListTrack.newBuilder().setMetadata(toMetadata(it)).build()) }
-        responseObserver.onNext(response.build())
+        val listTracks = matches.map { track ->
+            ListTrack.newBuilder()
+                .setMetadata(toMetadata(track))
+                .build()
+        }
+
+        EaasGrpcResponseBatcher.chunk(listTracks, request.pageSize).forEach { batch ->
+            responseObserver.onNext(
+                SearchTracksResponse.newBuilder()
+                    .addAllTracks(batch)
+                    .build()
+            )
+        }
         responseObserver.onCompleted()
     }
 
@@ -148,7 +159,7 @@ class EngineLibraryGrpcService(
         }
 
         val host = serverHost().ifBlank { "0.0.0.0" }
-        val url = track.httpUrl(host)
+        val url = track.httpUrl(host, serverHttpPort())
 
         val blob = TrackBlob.newBuilder()
             .setUrl(

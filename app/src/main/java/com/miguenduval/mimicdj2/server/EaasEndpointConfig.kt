@@ -33,6 +33,9 @@ object EaasEndpointConfig {
         }
     }
 
+    fun advertisedHttpPort(localHttpPort: Int, bridgeHost: String): Int =
+        if (bridgeHost.trim().isNotEmpty()) STANDARD_HTTP_PORT else localHttpPort
+
     fun loadBridgeHost(context: Context): String =
         context.applicationContext
             .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
