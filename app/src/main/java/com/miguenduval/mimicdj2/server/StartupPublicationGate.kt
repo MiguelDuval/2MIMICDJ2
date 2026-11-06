@@ -8,9 +8,10 @@ object StartupPublicationGate {
     fun commit(
         grpcPort: Int,
         httpPort: Int,
+        httpReady: Boolean,
         publish: () -> Unit
     ): Boolean {
-        if (grpcPort <= 0 || httpPort <= 0) return false
+        if (grpcPort <= 0 || httpPort <= 0 || !httpReady) return false
         publish()
         return true
     }
