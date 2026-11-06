@@ -284,6 +284,37 @@ Last Contact: never"
 Unreadable: 0 | Duplicates: 0"
                         android:textSize="14sp"
                         android:fontFamily="monospace" />
+                    <TextView
+                        android:id="@+id/tvMediaFolder"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:text="@string/media_folder_all"
+                        android:textSize="12sp"
+                        android:fontFamily="monospace" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:orientation="horizontal">
+
+                        <Button
+                            android:id="@+id/btnSelectMediaFolder"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:layout_marginEnd="4dp"
+                            android:text="@string/select_music_folder" />
+
+                        <Button
+                            android:id="@+id/btnUseAllDeviceMusic"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:layout_marginStart="4dp"
+                            android:text="@string/use_all_device_music" />
+                    </LinearLayout>
 
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>            <!-- File Server Info Card -->
