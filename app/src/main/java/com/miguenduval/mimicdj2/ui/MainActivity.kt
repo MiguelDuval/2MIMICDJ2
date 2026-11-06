@@ -45,6 +45,7 @@ class MainActivity : AppCompatActivity() {
     private var pendingServerStartAfterLocalNetworkPermission = false
     private var pendingServerStartAfterServiceBinding = false
     private var pendingUseAllDeviceMusic = false
+    private var pendingDefaultMusicPermission = false
 
     private val mediaFolderPicker = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -98,6 +99,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         initViews()
         setupClickListeners()
+        ensureDefaultMusicPermission()
         bindToServerService()
         startPeriodicUiUpdate()
     }
@@ -208,13 +210,41 @@ class MainActivity : AppCompatActivity() {
         return false
     }
 
-    private fun onMediaPermissionResult(granted: Boolean) {
-        if (!pendingUseAllDeviceMusic) return
-        pendingUseAllDeviceMusic = false
-        if (granted) {
-            switchToAllDeviceMusic()
+    private fun ensureDefaultMusicPermission() {
+        val selectedFolder = getSharedPreferences(MediaLibrary.PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(MediaLibrary.KEY_SELECTED_TREE_URI, null)
+        if (!selectedFolder.isNullOrBlank()) return
+
+        val permission = mediaReadPermission()
+        if (checkSelfPermission(permission) == android.content.pm.PackageManager.PERMISSION_GRANTED) return
+
+        pendingDefaultMusicPermission = true
+        requestPermissions(arrayOf(permission), MEDIA_PERMISSION_REQUEST)
+    }
+
+    private fun mediaReadPermission(): String =
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            Manifest.permission.READ_MEDIA_AUDIO
         } else {
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        }
+
+    private fun onMediaPermissionResult(granted: Boolean) {
+        val requestedAllMusic = pendingUseAllDeviceMusic
+        val requestedDefaultSource = pendingDefaultMusicPermission
+        pendingUseAllDeviceMusic = false
+        pendingDefaultMusicPermission = false
+
+        if (!granted) {
+            tvTrackCount.text = getString(R.string.music_access_required)
             Toast.makeText(this, R.string.music_permission_denied, Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (requestedAllMusic) {
+            switchToAllDeviceMusic()
+        } else if (requestedDefaultSource) {
+            refreshMediaLibrary()
         }
     }
 
@@ -242,11 +272,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun useAllDeviceMusic() {
-        val permission = if (android.os.Build.VERSION.SDK_INT >= 33) {
-            Manifest.permission.READ_MEDIA_AUDIO
-        } else {
-            Manifest.permission.READ_EXTERNAL_STORAGE
-        }
+        val permission = mediaReadPermission()
         if (checkSelfPermission(permission) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             pendingUseAllDeviceMusic = true
             requestPermissions(arrayOf(permission), MEDIA_PERMISSION_REQUEST)

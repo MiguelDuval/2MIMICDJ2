@@ -25,6 +25,7 @@
     <string name="using_all_device_music">Using all music on this device.</string>
     <string name="music_permission_denied">Music access was not granted. The current folder selection was kept.</string>
     <string name="track_count_zero">No audio tracks found.</string>
+    <string name="music_access_required">Allow music access or choose a music folder.</string>
     <plurals name="track_count">
         <item quantity="one">%d audio track</item>
         <item quantity="other">%d audio tracks</item>
