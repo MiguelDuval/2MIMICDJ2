@@ -209,6 +209,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun onMediaPermissionResult(granted: Boolean) {
+        if (!pendingUseAllDeviceMusic) return
         pendingUseAllDeviceMusic = false
         if (granted) {
             switchToAllDeviceMusic()

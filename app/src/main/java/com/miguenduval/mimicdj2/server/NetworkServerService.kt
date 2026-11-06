@@ -55,8 +55,7 @@ class NetworkServerService : Service() {
     private var boundInterface: String? = null
     private val lifecycleLock = Any()
     @Volatile private var serverState = ServerState.STOPPED
-    @Volatile private var primeGoPortsProbed = false
-    @Volatile private var primeGoHighPortScanStarted = false
+    @Volatile private var lastStartupError: String? = null
 
     // Binder for service binding
     inner class LocalBinder : Binder() {
@@ -123,12 +122,12 @@ class NetworkServerService : Service() {
                 startServer(port, iface)
             }
             ACTION_STOP_SERVER -> stopServer()
-            null -> diagnostics.warn(TAG, "Received null intent")
         }
         return START_STICKY
     }
 
     private fun startServer(port: Int, iface: String?) {
+        lastStartupError = null
         synchronized(lifecycleLock) {
             when (serverState) {
                 ServerState.RUNNING, ServerState.STARTING -> {
@@ -149,62 +148,6 @@ class NetworkServerService : Service() {
         runCatching { updateNotification("Starting EAAS server…") }
             .onFailure { diagnostics.error(TAG, "Foreground promotion failed; continuing with LAN server startup", it) }
         scope.launch { doStartServer(port, iface) }
-    }
-
-    private fun probeLocalGrpcTcp(host: String, port: Int) {
-        runCatching {
-            java.net.Socket().use { socket ->
-                socket.connect(InetSocketAddress(host, port), 1200)
-            }
-            diagnostics.info(TAG, "Phone self-test TCP/$port: OK")
-        }.onFailure { e ->
-            diagnostics.error(TAG, "Phone self-test TCP/$port failed", e)
-        }
-    }
-
-    /**
-     * Proves the complete local HTTP/2 + gRPC stack, not just the TCP listener.
-     * This is diagnostic only: the request never leaves the phone.
-     */
-    private fun probeLocalGrpcRpc(host: String, port: Int) {
-        scope.launch {
-            var channel: io.grpc.ManagedChannel? = null
-            try {
-                channel = OkHttpChannelBuilder
-                    .forAddress(host, port)
-                    .usePlaintext()
-                    .build()
-
-                val trustResponse =
-                    com.miguenduval.mimicdj2.eaas.networktrust.NetworkTrustServiceGrpc
-                        .newBlockingStub(channel)
-                        .createTrust(
-                            com.miguenduval.mimicdj2.eaas.networktrust.CreateTrustRequest
-                                .newBuilder()
-                                .setDeviceName(NetworkTrustGrpcService.INTERNAL_SELF_TEST_DEVICE_NAME)
-                                .build()
-                        )
-
-                val librariesResponse =
-                    com.miguenduval.mimicdj2.eaas.enginelibrary.v1.EngineLibraryServiceGrpc
-                        .newBlockingStub(channel)
-                        .getLibraries(
-                            com.miguenduval.mimicdj2.eaas.enginelibrary.v1.GetLibrariesRequest
-                                .getDefaultInstance()
-                        )
-
-                diagnostics.info(
-                    TAG,
-                    "Phone self-test gRPC/$port: OK " +
-                        "CreateTrust.granted=" + trustResponse.hasGranted() +
-                        " GetLibraries.count=" + librariesResponse.librariesCount
-                )
-            } catch (t: Throwable) {
-                diagnostics.error(TAG, "Phone self-test gRPC/$port failed", t)
-            } finally {
-                runCatching { channel?.shutdownNow() }
-            }
-        }
     }
 
     private fun doStartServer(port: Int, iface: String?) {
@@ -228,25 +171,7 @@ class NetworkServerService : Service() {
             throw IllegalStateException("No concrete LAN IPv4 address available for gRPC bind")
         }
 
-        // In compatibility-bridge mode the gateway has fixed targets:
-        // LAN 50010 -> phone 50100 and LAN 50020 -> phone 50110.
-        // Do not silently switch to another phone port, otherwise discovery
-        // succeeds but the gateway forwards Engine traffic to the wrong place.
-        val bridgeHost = EaasEndpointConfig.loadBridgeHost(applicationContext).trim()
-        val bridgeMode = bridgeHost.isNotEmpty()
-        if (bridgeMode) {
-            diagnostics.info(
-                TAG,
-                "EAAS compatibility bridge enabled at $bridgeHost; " +
-                    "phone targets are fixed to ${EaasServerPortPlan.BRIDGE_GRPC_PORT}/" +
-                    "${EaasServerPortPlan.BRIDGE_HTTP_PORT}"
-            )
-        }
-
-        val grpcCandidates = EaasServerPortPlan.grpcCandidates(
-            requestedPort = port,
-            bridgeMode = bridgeMode
-        )
+        val grpcCandidates = EaasServerPortPlan.grpcCandidates(requestedPort = port)
 
         var lastFailure: Throwable? = null
 
@@ -386,8 +311,6 @@ class NetworkServerService : Service() {
 
                 // Do not announce the EAAS device until both paired endpoints are
                 // actually listening. Engine derives HTTP as grpcPort + 10.
-                scope.launch { probeLocalGrpcTcp(advertisedHost, actualPort) }
-                probeLocalGrpcRpc(advertisedHost, actualPort)
                 startEaasDiscoveryListener()
                 runCatching {
                     updateNotification(
@@ -425,7 +348,6 @@ class NetworkServerService : Service() {
                 if (candidatePort == port && bindIpv6Wildcard) {
                     // The standard endpoint failed on both address families.
                     // Capture the kernel port-policy evidence before falling back.
-                    diagnoseTcpBindFailure(port)
                     if (processNetworkBound) {
                         NetworkAddress.clearProcessBinding(applicationContext)
                         diagnostics.info(TAG, "Cleared temporary process Wi-Fi binding after standard port failure")
@@ -550,7 +472,6 @@ class NetworkServerService : Service() {
         } catch (t: Throwable) {
             httpBindError = t.javaClass.simpleName + ": " + (t.message ?: "no message")
             diagnostics.error(TAG, "Failed to create IPv6 EAAS HTTP socket on $port", t)
-            diagnoseTcpBindFailure(port)
             throw IllegalStateException(
                 "EAAS HTTP $port socket creation failed after IPv4 bind error: " +
                     (ipv4Failure?.message ?: "unknown IPv4 failure"),
@@ -583,7 +504,6 @@ class NetworkServerService : Service() {
             runCatching { Os.close(fd6) }
             httpBindError = t.javaClass.simpleName + ": " + (t.message ?: "no message")
             diagnostics.error(TAG, "Failed to start IPv6 dual-stack EAAS HTTP server on $port", t)
-            diagnoseTcpBindFailure(port)
             throw IllegalStateException(
                 "EAAS HTTP $port bind failed after IPv4 and IPv6 attempts: " +
                     t.javaClass.simpleName + ": " + (t.message ?: "no message"),
@@ -600,42 +520,6 @@ class NetworkServerService : Service() {
         return fd6 to "IPv6 dual-stack"
     }
 
-    private fun diagnoseTcpBindFailure(targetPort: Int = 50020) {
-        diagnostics.info(TAG, "Port $targetPort diagnostic matrix:\n${PortDiagnostics.snapshot(NetworkAddress.currentLanIpv4(applicationContext), targetPort)}")
-
-        // A failed bind does not tell us whether the port is reserved-but-unused
-        // or whether another system/vendor service already owns it. A connect
-        // probe distinguishes those cases without requiring root.
-        val host = NetworkAddress.currentLanIpv4(applicationContext)
-        if (!host.isNullOrBlank()) {
-            diagnostics.info(
-                TAG,
-                "TCP connect probes: $targetPort LAN=${probeTcpEndpoint(host, targetPort)} " +
-                    "loopback=${probeTcpEndpoint("127.0.0.1", targetPort)}; " +
-                    "${targetPort + 1} LAN=${probeTcpEndpoint(host, targetPort + 1)}; " +
-                    "${targetPort + 2} LAN=${probeTcpEndpoint(host, targetPort + 2)}"
-            )
-        } else {
-            diagnostics.warn(TAG, "TCP connect probes skipped: no LAN IPv4")
-        }
-    }
-
-    private fun probeTcpEndpoint(host: String, port: Int): String =
-        runCatching {
-            java.net.Socket().use { socket ->
-                socket.connect(InetSocketAddress(host, port), 700)
-            }
-            "CONNECTED"
-        }.fold(
-            onSuccess = { it },
-            onFailure = { error ->
-                when (error) {
-                    is java.net.ConnectException -> "REFUSED"
-                    is java.net.SocketTimeoutException -> "TIMEOUT"
-                    else -> error.javaClass.simpleName
-                }
-            }
-        )
     private fun handleHttpClient(
         fd: FileDescriptor,
         remoteIp: String?,
@@ -683,80 +567,12 @@ class NetworkServerService : Service() {
                             continue
                         }
 
-                        if (!primeGoPortsProbed) {
-                            primeGoPortsProbed = true
-                            scope.launch {
-                                val peer = sender?.address?.hostAddress
-                                if (!peer.isNullOrBlank()) {
-                                    diagnostics.primeGoPort50010 = probeTcpEndpoint(peer, 50010)
-                                    diagnostics.primeGoPort50020 = probeTcpEndpoint(peer, 50020)
-                                    diagnostics.primeGoPort50021 = probeTcpEndpoint(peer, 50021)
-                                    diagnostics.primeGoGrpcLibraryProbe =
-                                        PrimeGoGrpcCompatibilityProbe.getLibraries(peer, 50010)
-                                    diagnostics.info(
-                                        TAG,
-                                        "Prime GO reverse TCP probes: 50010=${diagnostics.primeGoPort50010}, " +
-                                            "50020=${diagnostics.primeGoPort50020}, 50021=${diagnostics.primeGoPort50021}"
-                                    )
-                                    diagnostics.info(
-                                        TAG,
-                                        "Prime GO EngineLibrary.GetLibraries on TCP/50010: ${diagnostics.primeGoGrpcLibraryProbe}"
-                                    )
-                                }
-                            }
-                        }
-
-                        if (!primeGoHighPortScanStarted) {
-                            primeGoHighPortScanStarted = true
-                            scope.launch {
-                                // The reference captures show that some Engine directory/service
-                                // listeners are transient. Start the read-only scan immediately,
-                                // and do not let this phone's own self-tests suppress it.
-                                if (diagnostics.externalRawTcpAccepts.get() > 0 ||
-                                    diagnostics.externalConnectionsOpened.get() > 0 ||
-                                    diagnostics.externalRpcCount.get() > 0
-                                ) {
-                                    diagnostics.primeGoHighPortScan = "SKIPPED: external server contact already observed"
-                                    diagnostics.primeGoHighPortScanProgress = "not needed"
-                                    return@launch
-                                }
-
-                                val peer = sender?.address?.hostAddress
-                                if (!peer.isNullOrBlank()) {
-                                    diagnostics.primeGoHighPortScanProgress = "STARTING"
-                                    val findings = java.util.Collections.synchronizedList(mutableListOf<String>())
-                                    val result = PrimeGoPortScanner.scan(
-                                        host = peer,
-                                        onProgress = { completed, total ->
-                                            diagnostics.primeGoHighPortScanProgress = "$completed/$total"
-                                        },
-                                        onPortOpen = { openPort ->
-                                            val fingerprint = PrimeGoGrpcCompatibilityProbe.getLibraries(peer, openPort)
-                                            val finding = "$openPort=$fingerprint"
-                                            findings.add(finding)
-                                            diagnostics.primeGoHighPortGrpcProbes = findings.joinToString(" | ")
-                                            diagnostics.info(TAG, "Prime GO transient TCP/$openPort: $fingerprint")
-                                        }
-                                    )
-                                    diagnostics.primeGoHighPortScan = result.summary
-                                    diagnostics.primeGoHighPortScanProgress =
-                                        "${result.completed}/${result.total}"
-                                    diagnostics.info(TAG, "Prime GO high-port scan: ${result.summary}")
-                                }
-                            }
-                        }
-
                         val localHost = resolveLocalIPv4For(sender?.address)
-                        val advertisedEndpoint = EaasEndpointConfig.advertisedEndpoint(
-                            localHost = localHost,
-                            localGrpcPort = boundPort,
-                            bridgeHost = EaasEndpointConfig.loadBridgeHost(applicationContext)
-                        )
                         val response = EaasDiscovery.buildResponse(
                             token = eaasToken,
                             hostname = "Mimic DJ",
-                            grpcHost = advertisedEndpoint.host,
-                            grpcPort = advertisedEndpoint.grpcPort,
+                            grpcHost = localHost,
+                            grpcPort = boundPort,
                             softwareVersion = BuildConfig.VERSION_NAME,
                             extra = "_"
                         )
@@ -813,6 +629,8 @@ class NetworkServerService : Service() {
     }
 
     private fun handleStartupFailure(throwable: Throwable) {
+        lastStartupError = throwable.message?.takeIf { it.isNotBlank() }
+            ?: throwable.javaClass.simpleName
         diagnostics.error(
             TAG,
             "EAAS startup failure (" + throwable.javaClass.name + "): " + (throwable.message ?: "no message"),
@@ -851,8 +669,6 @@ class NetworkServerService : Service() {
             diagnostics.httpListenerPort = 0
             diagnostics.httpListenerAddress = null
         }
-        primeGoPortsProbed = false
-        primeGoHighPortScanStarted = false
         NetworkAddress.clearProcessBinding(applicationContext)
 
         synchronized(lifecycleLock) {
@@ -862,7 +678,7 @@ class NetworkServerService : Service() {
         // Keep the service alive so the Activity can still retrieve the
         // original startup failure from diagnostics.
         try {
-            updateNotification("Server start failed — copy diagnostics")
+            updateNotification("Server could not start")
         } catch (t: Throwable) {
             diagnostics.error(TAG, "Failed to update failure notification", t)
         }
@@ -894,7 +710,6 @@ class NetworkServerService : Service() {
         boundInterface = null
         httpBoundPort = 0
         httpBindError = null
-        primeGoPortsProbed = false
         synchronized(lifecycleLock) { serverState = ServerState.STOPPED }
         updateNotification("Server stopped")
         stopForeground(true)
@@ -958,19 +773,11 @@ class NetworkServerService : Service() {
     /** Called by the bound Activity so Stop does not depend on a second startService delivery. */
     fun requestStop() = stopServer()
 
-    fun getDiagnostics(): ServerDiagnostics = diagnostics
     fun getServerState(): ServerState = serverState
+    fun getLastStartupError(): String? = lastStartupError
     fun getBoundPort(): Int = boundPort
     fun getBoundInterface(): String? = boundInterface
 
-    fun getAdvertisedEndpoint(): EaasAdvertisedEndpoint {
-        val localHost = boundInterface ?: NetworkAddress.currentLanIpv4(applicationContext) ?: "0.0.0.0"
-        return EaasEndpointConfig.advertisedEndpoint(
-            localHost = localHost,
-            localGrpcPort = boundPort,
-            bridgeHost = EaasEndpointConfig.loadBridgeHost(applicationContext)
-        )
-    }
     fun getHttpBoundPort(): Int = httpBoundPort
     fun getHttpBindError(): String? = httpBindError
 
