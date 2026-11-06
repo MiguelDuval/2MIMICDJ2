@@ -103,3 +103,12 @@ The following values are directly observed from the user's latest 2MIMICDJ2 diag
 - Android version / device model: NOT READ FROM THIS DIAGNOSTIC REPORT.
 
 This entry deliberately does not infer firmware-specific protocol behavior from SC6000 or older Engine DJ references.
+
+
+## Cross-device/version caution — 2026-11-06
+
+DeathCamel58's Engine Networking / Engine gRPC research is principally from SC6000 hardware running Engine OS 5.0.4. On those units TCP/50010 served EngineSync only; the separate EAAS gRPC server's external port was not resolved. The same research did not observe TCP/50020 active.
+
+Do not substitute those SC6000 findings for Prime GO facts. The direct Prime GO capture dated 2026-09-29 shows EngineLibrary RPC on TCP/50010 and HTTP audio download on TCP/50020. This target-specific capture remains authoritative for this project.
+
+The Prime GO's exact Engine OS/firmware version is still missing from the profile and must be recorded before making any version-specific protocol change.
